@@ -10,14 +10,15 @@ import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
 
 data XMenuOpts = XMenuOpts { g_width        :: Dimension
                            , g_height       :: Dimension
-                           , g_bgColor      :: Pixel
                            , g_fgColor      :: Pixel
+                           , g_bgColor      :: Pixel
                            , g_font         :: String
                            , g_xPad         :: Dimension
                            , g_yPad         :: Dimension
                            , g_xMarg        :: Dimension
                            , g_yMarg        :: Dimension
-                           , g_focColor     :: Pixel
+                           , g_fgFocColor   :: Pixel
+                           , g_bgFocColor   :: Pixel
                            }
 
 data XMenuData = XMenuData { g_display      :: Display

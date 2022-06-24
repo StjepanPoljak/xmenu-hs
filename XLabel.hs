@@ -29,7 +29,8 @@ data XMLabel = XMLabel { l_val          :: String
                        , l_background   :: Bool
                        , l_fontStruct   :: FontStruct
                        , l_focused      :: Bool
-                       , l_focColor     :: Pixel
+                       , l_fgFocColor   :: Pixel
+                       , l_bgFocColor   :: Pixel
                        , l_onChange     :: XMLabel -> IO ()
                        }
 
@@ -77,8 +78,9 @@ defaultLabel x y w h = ask >>= \(XMenuGlobal xmopts xmdata) ->
             return $ XMLabel "" (Right "") x y w h
                              (g_xPad xmopts) (g_yPad xmopts)
                              (g_fgColor xmopts) (g_bgColor xmopts)
-                             False False (g_fontStruct xmdata)
-                             False (g_focColor xmopts) (\_ -> return ())
+                             False False (g_fontStruct xmdata) False
+                             (g_fgFocColor xmopts) (g_bgFocColor xmopts)
+                             (\_ -> return ())
 
 -- updateLabel :: XMContext -> XMLabel -> Reader XMenuData XMLabel
 -- updateLabel context label = ask >>= \xmdata -> do
@@ -89,12 +91,14 @@ defaultLabel x y w h = ask >>= \(XMenuGlobal xmopts xmdata) ->
 drawLabel :: XMContext -> XMLabel -> RT.ReaderT XMenuData IO ()
 drawLabel context label = RT.ask >>= \xmdata -> liftIO $ do
     let display = g_display xmdata
+    let bgColor = bool (l_bgColor label) (l_bgFocColor label) (l_focused label)
+    let fgColor = bool (l_fgColor label) (l_fgFocColor label) (l_focused label)
     when (l_background label) $ do
-            setForeground display gc (l_bgColor label)
+            setForeground display gc bgColor
             fillRectangle display drawable gc (l_x label) (l_y label)
                           (l_width label) (l_height label)
-    setForeground display gc (l_fgColor label)
-    setBackground display gc (l_bgColor label)
+    setForeground display gc fgColor
+    setBackground display gc bgColor
     setFont display gc (fontFromFontStruct $ l_fontStruct label)
     when (l_border label) $ drawRectangle display drawable gc
                                         (l_x label) (l_y label)

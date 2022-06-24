@@ -49,9 +49,9 @@ getKeyStr str = maybe str id $ Map.fromList specialChars Map.!? str
 
 main =  do
 
-    let xmopts = XMenuOpts 400 200 0x23333b 0x6dcfff
+    let xmopts = XMenuOpts 400 200 0x244758 0x12222a
                            "-*-Terminus-*-*-*-*-16-*-*-*-*-*-*-*"
-                           20 10 15 15 0x12222a
+                           20 10 15 15 0x6dcfff 0x12222a
 
     xmglobal <- runReaderT createXMenu xmopts
 

@@ -24,9 +24,11 @@ sendKeyInputToManager :: XEManager -> (KeyCode, String) -> IO XEManager
 sendKeyInputToManager xem kdata =
             maybe (return xem)
                   (\foc -> do
-                        nxel <- sendKeyInput (xem_elements xem !! foc) kdata
+                        nel <- sendKeyInput (xem_elements xem !! foc) kdata
                         let (p1, p2) = splitAt foc $ xem_elements xem
-                        return $ xem { xem_elements = (p1 ++ [nxel] ++ (bool (tail p2) [] (length p2 == 0))) }
+                        return $ xem { xem_elements = p1 ++ [nel]
+                                                   ++ (bool (tail p2) []
+                                                            (length p2 == 0)) }
                   )
                   (xem_inFocus xem)
 
@@ -39,14 +41,26 @@ drawAll xem ctx = drawAll' (xem_elements xem) ctx
 
 changeFocus :: XEManager -> XEManager
 changeFocus xem@(XEManager [] _) = xem
--- changeFocus xem@(XEManager [x] _) = xem
 changeFocus xem = changeFocus' (xem_inFocus xem)
                                (nextElement xem (maybe 0 id $ xem_inFocus xem)) xem
-    where changeFocus' foc curr xem =
-                bool (changeFocus' foc (nextElement xem curr) xem)
-                     (xem { xem_inFocus = Just curr} )
-                     (canFocus (xem_elements xem !! curr) || case foc of
+    where changeFocus' foc curr xem' =
+                bool (changeFocus' foc (nextElement xem' curr) xem')
+                     (bool (removeOldFocus foc . setNewFocus curr
+                          $ xem' { xem_inFocus = Just curr } ) xem'
+                          $ maybe False (curr ==) foc)
+                    $ canFocus (xem_elements xem' !! curr) || case foc of
                         Just foc'   -> foc' == curr
-                        Nothing     -> curr == length (xem_elements xem))
-          nextElement xem curr =
-                    bool (curr + 1) 0 (curr + 1 == length (xem_elements xem))
+                        Nothing     -> curr + 1 == length (xem_elements xem')
+          nextElement xem' curr =
+                    bool (curr + 1) 0 (curr + 1 == length (xem_elements xem'))
+          removeOldFocus foc xem' = maybe xem' (\foc' ->
+                        let (p1, p2) = splitAt foc' (xem_elements xem')
+                            oldf = setFocus (xem_elements xem' !! foc') False
+                        in xem' { xem_elements = p1 ++ [oldf]
+                                              ++ (bool (tail p2) []
+                                                       (length p2 == 0)) }) foc
+          setNewFocus foc xem' = let (p1, p2) = splitAt foc (xem_elements xem')
+                                     newf = setFocus (xem_elements xem' !! foc) True
+                                 in xem' { xem_elements = p1 ++ [newf]
+                                                       ++ (bool (tail p2) []
+                                                          (length p2 == 0)) }

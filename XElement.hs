@@ -17,7 +17,6 @@ data XMList = XMList Int
 data XMElement = XMLabelE XMLabel
                | XMListE XMList
 
---defaultLabelE :: Reader XMenuGlobal XMElement
 defaultLabelE x y w h f = (\xmglobal -> XMLabelE $ f (runReader (defaultLabel x y w h) xmglobal))
 
 class XMElementClass a where
@@ -25,6 +24,7 @@ class XMElementClass a where
     sendKeyInput :: a -> (KeyCode, String) -> IO a
     drawElement :: XMContext -> a -> ReaderT XMenuData IO ()
     onChange :: a -> IO ()
+    setFocus :: a -> Bool -> a
 
 instance XMElementClass XMElement where
     canFocus (XMLabelE label)   = True
@@ -32,12 +32,18 @@ instance XMElementClass XMElement where
     sendKeyInput (XMLabelE label) (kc, str)
         | length str == 0   = return $ XMLabelE label
         | kc == 9           = return $ XMLabelE label
-        | otherwise         = liftM XMLabelE $ (\xl -> do
-                                                    (l_onChange label) xl
-                                                    return xl)
-                            . bool (appendCharToLabel label (head str))
-                                   (removeCharFromLabel label) $ (kc == 22)
+        | otherwise         = liftM XMLabelE
+                            $ either return (\lbl -> do
+                                                l_onChange lbl $ lbl
+                                                return lbl)
+                            . bool (Right $ appendCharToLabel label (head str))
+                                   (bool (Right $ removeCharFromLabel label)
+                                         (Left label)
+                                         (length (l_val label) == 0))
+                            $ (kc == 22)
     sendKeyInput (XMListE list) (kc, str) = return $ XMListE list
     drawElement ctx (XMLabelE label) = drawLabel ctx label
     onChange (XMLabelE label) = l_onChange label $ label
     onChange (XMListE _) = return ()
+    setFocus (XMLabelE label) foc = XMLabelE $ label { l_focused = foc }
+    setFocus (XMListE list) _ = XMListE list
