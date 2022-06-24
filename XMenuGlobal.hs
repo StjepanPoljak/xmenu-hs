@@ -4,7 +4,9 @@ module XMenuGlobal
     , XMenuGlobal(..)
     ) where
 
-import Graphics.X11 (Dimension, Pixel, FontStruct, Font, Screen, ScreenNumber, Display, Window)
+import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
+                    , Screen, ScreenNumber, Display, Window
+                    )
 
 data XMenuOpts = XMenuOpts { g_width        :: Dimension
                            , g_height       :: Dimension
@@ -13,6 +15,9 @@ data XMenuOpts = XMenuOpts { g_width        :: Dimension
                            , g_font         :: String
                            , g_xPad         :: Dimension
                            , g_yPad         :: Dimension
+                           , g_xMarg        :: Dimension
+                           , g_yMarg        :: Dimension
+                           , g_focColor     :: Pixel
                            }
 
 data XMenuData = XMenuData { g_display      :: Display
@@ -25,3 +30,4 @@ data XMenuData = XMenuData { g_display      :: Display
 data XMenuGlobal = XMenuGlobal { g_xmopts   :: XMenuOpts
                                , g_xmdata   :: XMenuData
                                }
+
