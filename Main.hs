@@ -50,7 +50,7 @@ getKeyStr str = maybe str id $ Map.fromList specialChars Map.!? str
 main =  do
 
     let xmopts = XMenuOpts 400 200 0x244758 0x12222a
-                           "-*-Terminus-*-*-*-*-16-*-*-*-*-*-*-*"
+                           (createFont "Terminus" 16)
                            20 10 15 15 0x6dcfff 0x12222a
 
     xmglobal <- runReaderT createXMenu xmopts
@@ -76,11 +76,13 @@ main =  do
         let context = (flip runReader) xmglobal $ createContext pixmap gc
 
         setForeground display gc (g_bgColor xmopts)
-        fillRectangle display pixmap gc 0 0 (g_width xmopts) (g_height xmopts)
+        fillRectangle display pixmap gc 0 0 (c_width context)
+                      (c_height context)
 
         (flip runReaderT) xmdata $ drawAll xman context
 
-        copyArea display pixmap xmenuw gc 0 0 400 200 0 0
+        copyArea display pixmap xmenuw gc 0 0 (c_width context)
+                 (c_height context) 0 0
 
         freeGC display gc
         freePixmap display pixmap
@@ -103,15 +105,28 @@ main =  do
                                                      (x, getKeyStr keyStr))
                               (keyStr `elem` allowedChars || x == 22)
             when (x==23) (loop $ changeFocus xman)
+            when (x==9 && focusOverridesEsc xman) (loop $ unfocus xman)
 
             ) $ getKeyCodeProperty ev ev_keycode
 
     let xman = (flip runReader) xmglobal
-             $ createManager [ (defaultLabelE 20 20 360 50 (\lbl -> lbl
-                                           { l_border = True
+             $ createManager [ (emptyLabelE 20 20 360 50 (\lbl -> lbl
+                                           { l_gen = (l_gen lbl)
+                                                     { gp_border = True
+                                                     , gp_overridesEsc = True
+                                                     }
                                            , l_onChange = (\xl ->
-                                                putStrLn (l_val $ xl)
+                                                putStrLn $ (l_val xl) ++ " : " ++ (show (l_dispVal xl))
                                                 ) })
+                               )
+                             , (defaultLabelE "Stjepan Poljak je najbolji"
+                                              20 90 100 50 (\lbl -> lbl
+                                              { l_gen = (l_gen lbl)
+                                                        { gp_border = True
+                                                        , gp_overridesEsc = True
+                                                        }
+                                              , l_onChange = (\xl -> do
+                                                putStrLn $ (l_val xl) ++ " : " ++ (show (l_dispVal xl)) )})
                                )
                              ]
     loop $ xman { xem_inFocus = Nothing }

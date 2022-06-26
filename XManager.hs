@@ -3,6 +3,8 @@ module XManager ( XEManager(..)
                 , sendKeyInputToManager
                 , createManager
                 , changeFocus
+                , focusOverridesEsc
+                , unfocus
                 ) where
 
 import Graphics.X11 (KeyCode)
@@ -18,7 +20,8 @@ data XEManager = XEManager { xem_elements   :: [XMElement]
                            }
 
 createManager :: [XMenuGlobal -> XMElement] -> Reader XMenuGlobal XEManager
-createManager xels = (\xmap -> return $ XEManager xmap Nothing) . (\xmglobal -> (map (\x -> x xmglobal) xels) ) =<< ask
+createManager xels = (\xmap -> return $ XEManager xmap Nothing)
+                   . (\xmglobal -> (map (\x -> x xmglobal) xels) ) =<< ask
 
 sendKeyInputToManager :: XEManager -> (KeyCode, String) -> IO XEManager
 sendKeyInputToManager xem kdata =
@@ -40,9 +43,11 @@ drawAll xem ctx = drawAll' (xem_elements xem) ctx
           drawAll' [] _ = return ()
 
 changeFocus :: XEManager -> XEManager
-changeFocus xem@(XEManager [] _) = xem
-changeFocus xem = changeFocus' (xem_inFocus xem)
-                               (nextElement xem (maybe 0 id $ xem_inFocus xem)) xem
+changeFocus xem = case xem_elements xem of
+    []          -> xem
+    otherwise   -> changeFocus' (xem_inFocus xem)
+                                (maybe 0 (nextElement xem) (xem_inFocus xem))
+                   xem
     where changeFocus' foc curr xem' =
                 bool (changeFocus' foc (nextElement xem' curr) xem')
                      (bool (removeOldFocus foc . setNewFocus curr
@@ -64,3 +69,20 @@ changeFocus xem = changeFocus' (xem_inFocus xem)
                                  in xem' { xem_elements = p1 ++ [newf]
                                                        ++ (bool (tail p2) []
                                                           (length p2 == 0)) }
+
+focusOverridesEsc :: XEManager -> Bool
+focusOverridesEsc xem =
+    maybe False (\foc' -> gp_overridesEsc
+                        $ getGenProps (xem_elements xem !! foc'))
+          (xem_inFocus xem)
+
+unfocus :: XEManager -> XEManager
+unfocus xem =
+    maybe xem (\foc' -> let newf = setFocus (xem_elements xem !! foc') False
+                            (p1, p2) = splitAt foc' (xem_elements xem)
+                            newels = p1 ++ [newf] ++ (bool (tail p2) []
+                                                    $ length p2 == 0)
+                        in xem { xem_elements = newels
+                               , xem_inFocus = Nothing
+                               })
+          (xem_inFocus xem)

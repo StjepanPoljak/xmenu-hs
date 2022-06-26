@@ -2,11 +2,18 @@ module XMenuGlobal
     ( XMenuOpts(..)
     , XMenuData(..)
     , XMenuGlobal(..)
+    , XMGenProps(..)
+    , createFont
     ) where
 
 import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
                     , Screen, ScreenNumber, Display, Window
+                    , Position
                     )
+
+createFont :: String -> Int -> String
+createFont name size = "-*-" ++ name ++ "-*-*-*-*-"
+                    ++ (show size) ++ "-*-*-*-*-*-*-*"
 
 data XMenuOpts = XMenuOpts { g_width        :: Dimension
                            , g_height       :: Dimension
@@ -31,4 +38,22 @@ data XMenuData = XMenuData { g_display      :: Display
 data XMenuGlobal = XMenuGlobal { g_xmopts   :: XMenuOpts
                                , g_xmdata   :: XMenuData
                                }
+
+data XMGenProps = XMGenProps { gp_x             :: Position
+                             , gp_y             :: Position
+                             , gp_width         :: Dimension
+                             , gp_height        :: Dimension
+                             , gp_xPad          :: Dimension
+                             , gp_yPad          :: Dimension
+                             , gp_fgColor       :: Pixel
+                             , gp_bgColor       :: Pixel
+                             , gp_border        :: Bool
+                             , gp_background    :: Bool
+                             , gp_fontStruct    :: FontStruct
+                             , gp_focused       :: Bool
+                             , gp_canFocus      :: Bool
+                             , gp_overridesEsc  :: Bool
+                             , gp_fgFocColor    :: Pixel
+                             , gp_bgFocColor    :: Pixel
+                             }
 

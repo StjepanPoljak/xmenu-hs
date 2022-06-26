@@ -3,6 +3,7 @@ module XLabel
     , appendCharToLabel
     , removeCharFromLabel
     , defaultLabel
+    , emptyLabel
     , drawLabel
     ) where
 
@@ -15,24 +16,26 @@ import Data.Bool (bool)
 import Data.Either (fromRight, either)
 import XContext
 
-data XMLabel = XMLabel { l_val          :: String
+data XMLabel = XMLabel { l_gen          :: XMGenProps
+                       , l_val          :: String
                        , l_dispVal      :: Either String String
-                       , l_x            :: Position
-                       , l_y            :: Position
-                       , l_width        :: Dimension
-                       , l_height       :: Dimension
-                       , l_xPad         :: Dimension
-                       , l_yPad         :: Dimension
-                       , l_fgColor      :: Pixel
-                       , l_bgColor      :: Pixel
-                       , l_border       :: Bool
-                       , l_background   :: Bool
-                       , l_fontStruct   :: FontStruct
-                       , l_focused      :: Bool
-                       , l_fgFocColor   :: Pixel
-                       , l_bgFocColor   :: Pixel
                        , l_onChange     :: XMLabel -> IO ()
                        }
+
+l_x             = gp_x . l_gen
+l_y             = gp_y . l_gen
+l_width         = gp_width . l_gen
+l_height        = gp_height . l_gen
+l_xPad          = gp_xPad . l_gen
+l_yPad          = gp_yPad . l_gen
+l_fgColor       = gp_fgColor . l_gen
+l_bgColor       = gp_bgColor . l_gen
+l_border        = gp_border . l_gen
+l_background    = gp_background . l_gen
+l_fontStruct    = gp_fontStruct . l_gen
+l_focused       = gp_focused . l_gen
+l_fgFocColor    = gp_fgFocColor . l_gen
+l_bgFocColor    = gp_bgFocColor . l_gen
 
 appendCharToLabel :: XMLabel -> Char -> XMLabel
 appendCharToLabel label char = case l_dispVal label of
@@ -72,21 +75,60 @@ fitText label
           currLabel = (fromRight "" $ l_dispVal label) ++ "..."
           dispLen = length (either id id (l_dispVal label))
 
-defaultLabel :: Position -> Position -> Dimension -> Dimension
-             -> Reader XMenuGlobal XMLabel
-defaultLabel x y w h = ask >>= \(XMenuGlobal xmopts xmdata) ->
-            return $ XMLabel "" (Right "") x y w h
+-- TotalChars :: CurrChars = TotalWidth : CurrWidth
+-- CurrChars * TotalWidth = TotalChars * CurrWidth
+-- CurrChars = TotalChars * CurrWidth / TotalWidth
+
+emptyLabel :: Position -> Position -> Dimension -> Dimension
+           -> Reader XMenuGlobal XMLabel
+emptyLabel x y w h = ask >>= \(XMenuGlobal xmopts xmdata) ->
+            return $ XMLabel (XMGenProps x y w h
                              (g_xPad xmopts) (g_yPad xmopts)
-                             (g_fgColor xmopts) (g_bgColor xmopts)
-                             False False (g_fontStruct xmdata) False
+                             (g_fgColor xmopts) (g_bgColor xmopts) False
+                             False (g_fontStruct xmdata) False True False
                              (g_fgFocColor xmopts) (g_bgFocColor xmopts)
-                             (\_ -> return ())
+                             ) "" (Right "") (\_ -> return ())
+
+defaultLabel :: String -> Position -> Position -> Dimension -> Dimension
+             -> Reader XMenuGlobal XMLabel
+defaultLabel v x y w h = do
+            lbl <- emptyLabel x y w h
+            let lbl' = lbl { l_val = v }
+            return $ lbl' { l_dispVal = getDispVal lbl' }
 
 -- updateLabel :: XMContext -> XMLabel -> Reader XMenuData XMLabel
 -- updateLabel context label = ask >>= \xmdata -> do
 --    where lblw = bool (l_width label) c_w (l_width label == 0)
 --          lblh = bool (l_height label) (fromIntegral asc + 2 * l_yPad label)
 --                      (l_height label == 0)
+
+l_width' label = l_width label - 2 * (l_xPad label)
+
+getDispVal :: XMLabel -> Either String String
+getDispVal label
+    | totalWidth < l_width' label       = Right $ l_val label
+    | approxCharWidth < l_width' label  = Left $ addUntilFit approxCharCount
+    | otherwise                         = Left $ delUntilFit approxCharCount
+    where approxDispVal = take approxCharCount (l_val label)
+          totalWidth = fromIntegral $ textWidth (l_fontStruct label)
+                                                (l_val label)
+          approxCharCount = fromIntegral $ (fromIntegral (length (l_val label))
+                          * fromIntegral (l_width' label)) `div` totalWidth
+          approxCharWidth = fromIntegral $ textWidth (l_fontStruct label)
+                                                     (approxDispVal ++ "...")
+          addUntilFit cc =
+            let dv = take cc (l_val label)
+            in bool (dv ++ "...") (addUntilFit (cc + 1))
+                    (cc < (length $ l_val label)
+                       && (fromIntegral (textWidth (l_fontStruct label)
+                                                   (dv ++ "..."))
+                        < fromIntegral (l_width' label)))
+          delUntilFit cc =
+            let dv = take cc (l_val label)
+            in bool (dv ++ "...") (delUntilFit (cc - 1))
+                    (cc > 0 && (fromIntegral (textWidth (l_fontStruct label)
+                                                        (dv ++ "..."))
+                        > fromIntegral (l_width' label)))
 
 drawLabel :: XMContext -> XMLabel -> RT.ReaderT XMenuData IO ()
 drawLabel context label = RT.ask >>= \xmdata -> liftIO $ do
