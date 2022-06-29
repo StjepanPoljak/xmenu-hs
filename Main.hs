@@ -16,8 +16,10 @@ import qualified Data.Map as Map
 import XMenuGlobal
 import XLabel
 import XContext
-import XManager
+import XManagerClass
 import XElement
+
+debug = True
 
 isKeyEvent :: Event -> Bool
 isKeyEvent (KeyEvent _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) = True
@@ -78,7 +80,7 @@ main =  do
         setForeground display gc (g_bgColor xmopts)
         fillRectangle display pixmap gc 0 0 (c_width context)
                       (c_height context)
-        putStrLn $ show $ getFocus xman
+
         (flip runReaderT) xmdata $ drawAll xman context
 
         copyArea display pixmap xmenuw gc 0 0 (c_width context)
@@ -98,35 +100,35 @@ main =  do
                 let (Just st)   = getKeyCodeProperty ev ev_state
                 sym             <- keycodeToKeysym display x (fromIntegral st)
                 let keyStr      = keysymToString sym
-                putStrLn $ show (st, keyStr, x)
+
+                when (debug) . putStrLn $ show (st, keyStr, x)
 
                 loop =<< bool (return xman)
                               (sendKeyInputToManager xman
                                                      (x, getKeyStr keyStr))
                               (keyStr `elem` allowedChars || x == 22)
-            when (x==23) (loop $ changeFocus xman)
-            when (x==9 && focusOverridesEsc xman) (loop $ unfocus xman)
+            when (x==23) . loop . changeFocus xman $ Forward
+            when (x==9 && focusOverridesEsc xman) . loop . unfocus $ xman
 
             ) $ getKeyCodeProperty ev ev_keycode
 
     let xman = (flip runReader) xmglobal
-             $ createManager [ (emptyLabelE 20 20 360 50 (\lbl -> lbl
+             $ createManager [ (emptyLabelE 20 20 360 50 $ \lbl -> lbl
                                            { l_gen = (l_gen lbl)
                                                      { gp_border = True
                                                      , gp_overridesEsc = True
                                                      }
-                                           , l_onChange = (\xl ->
-                                                putStrLn $ (l_val xl) ++ " : " ++ (show (l_dispVal xl))
-                                                ) })
+                                           , l_onChange = putStrLn . l_val
+                                           }
                                )
                              , (defaultLabelE "Stjepan Poljak je najbolji"
-                                              20 90 100 50 (\lbl -> lbl
+                                              20 90 100 50 $ \lbl -> lbl
                                               { l_gen = (l_gen lbl)
                                                         { gp_border = True
                                                         , gp_overridesEsc = True
                                                         }
-                                              , l_onChange = (\xl -> do
-                                                putStrLn $ (l_val xl) ++ " : " ++ (show (l_dispVal xl)) )})
+                                              , l_onChange = putStrLn . l_val
+                                              }
                                )
                              ]
     loop $ xman { xem_inFocus = Nothing }

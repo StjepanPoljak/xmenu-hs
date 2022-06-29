@@ -1,10 +1,7 @@
 module XLabel
-    ( XMLabel(..)
-    , appendCharToLabel
-    , removeCharFromLabel
+    ( XMLabel(l_gen,l_val,l_onChange)
     , defaultLabel
     , emptyLabel
-    , drawLabel
     ) where
 
 import Graphics.X11
@@ -15,6 +12,7 @@ import Control.Monad (when, unless, liftM)
 import Data.Bool (bool)
 import Data.Either (fromRight, either)
 import XContext
+import XElementClass
 
 data XMLabel = XMLabel { l_gen          :: XMGenProps
                        , l_val          :: String
@@ -37,6 +35,22 @@ l_focused       = gp_focused . l_gen
 l_fgFocColor    = gp_fgFocColor . l_gen
 l_bgFocColor    = gp_bgFocColor . l_gen
 
+instance XMElementClass XMLabel where
+    sendKeyInput label (kc, str)
+        | null str  = return label
+        | otherwise = either return (\lbl -> do
+                                        l_onChange lbl $ lbl
+                                        return lbl)
+                    . bool (Right . appendCharToLabel label . head $ str)
+                           (case l_val label of
+                                []  -> Left label
+                                _   -> Right . removeCharFromLabel $ label)
+                    $ kc == 22
+
+    getGenProps = l_gen
+    drawElement = drawLabel
+    setGenProps label gpr = label { l_gen = gpr }
+
 appendCharToLabel :: XMLabel -> Char -> XMLabel
 appendCharToLabel label char = case l_dispVal label of
         Right notFit    -> bool (newLabel {l_dispVal = Right (l_val newLabel)})
@@ -50,14 +64,14 @@ appendCharToLabel label char = case l_dispVal label of
 
 removeCharFromLabel :: XMLabel -> XMLabel
 removeCharFromLabel label
-    | length (l_val label) == 0 = label
-    | otherwise                 = case l_dispVal label of
+    | null . l_val $ label  = label
+    | otherwise             = case l_dispVal label of
         Right notFit    -> newLabel { l_dispVal = Right (l_val newLabel) }
         Left isFit      -> bool newLabel
                             (newLabel { l_dispVal = Right (l_val newLabel) })
                             (newWwPad < l_width label)
-    where newLabel = label { l_val = bool (init $ l_val label) ""
-                                          ((length $ l_val label) == 0)
+    where newLabel = label { l_val = bool (init . l_val $ label) ""
+                                          (null . l_val $ label)
                            }
           newWidth = fromIntegral $ textWidth (l_fontStruct label)
                                               (l_val newLabel)

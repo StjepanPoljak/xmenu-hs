@@ -1,6 +1,6 @@
 proj=xmenu
 
-$(proj): Main.hs XMenuGlobal.hs XWindow.hs XRDB.hs XString.hs XLabel.hs XElement.hs XContext.hs XManager.hs
+$(proj): Main.hs XMenuGlobal.hs XWindow.hs XRDB.hs XString.hs XLabel.hs XElementClass.hs XContext.hs XElement.hs XManagerClass.hs XList.hs
 	ghc -dynamic $^ -o $@
 
 .phony=clean
