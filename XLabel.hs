@@ -133,8 +133,7 @@ getDispVal label
 drawLabel :: XMContext -> XMLabel -> RT.ReaderT XMenuData IO ()
 drawLabel context label = RT.ask >>= \xmdata -> liftIO $ do
     let display = g_display xmdata
-    let bgColor = bool (l_bgColor label) (l_bgFocColor label) (l_focused label)
-    let fgColor = bool (l_fgColor label) (l_fgFocColor label) (l_focused label)
+    let (fgColor, bgColor) = getColorsDynamic (l_gen label)
     when (l_background label) $ do
             setForeground display gc bgColor
             fillRectangle display drawable gc (l_x label) (l_y label)
@@ -150,5 +149,5 @@ drawLabel context label = RT.ask >>= \xmdata -> liftIO $ do
     where lbly = fromIntegral $ (l_height label + fromIntegral asc) `div` 2
           (_, asc, _, _) = textExtents (l_fontStruct label) (l_val label)
           lblx = fromIntegral (l_xPad label) + l_x label
-          XMContext drawable gc c_w c_h = context
+          XMContext drawable gc _ _ = context
 

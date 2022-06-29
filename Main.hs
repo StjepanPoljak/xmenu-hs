@@ -78,7 +78,7 @@ main =  do
         setForeground display gc (g_bgColor xmopts)
         fillRectangle display pixmap gc 0 0 (c_width context)
                       (c_height context)
-
+        putStrLn $ show $ getFocus xman
         (flip runReaderT) xmdata $ drawAll xman context
 
         copyArea display pixmap xmenuw gc 0 0 (c_width context)

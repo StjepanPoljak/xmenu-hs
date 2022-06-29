@@ -5,84 +5,103 @@ module XManager ( XEManager(..)
                 , changeFocus
                 , focusOverridesEsc
                 , unfocus
+                , XEManagerClass(..)
                 ) where
 
 import Graphics.X11 (KeyCode)
-import XElement
+import XElement as XE
 import XContext
 import XMenuGlobal
 import Control.Monad.Trans.Reader (ReaderT)
 import Control.Monad.Reader (Reader, ask, liftIO)
 import Data.Bool (bool)
 
-data XEManager = XEManager { xem_elements   :: [XMElement]
-                           , xem_inFocus    :: Maybe Int
-                           }
+data XEManager a = XEManager { xem_elements   :: [a]
+                             , xem_inFocus    :: Maybe Int
+                             }
 
-createManager :: [XMenuGlobal -> XMElement] -> Reader XMenuGlobal XEManager
+class XEManagerClass f where
+    getElements :: (XMElementClass a) => f a -> [a]
+    getFocus :: (XMElementClass a) => f a -> Maybe Int
+    setFocus :: (XMElementClass a) => f a -> Maybe Int -> f a
+    setElements :: (XMElementClass a) => f a -> [a] -> f a
+
+    getElement :: (XMElementClass a) => f a -> Int -> a
+    getElement xem no = (getElements xem) !! no
+
+    replaceElement :: (XMElementClass a) => f a -> Int -> a -> f a
+    replaceElement xem no el = let (p1, p2) = splitAt no $ getElements xem
+                               in setElements xem $ p1 ++ [el]
+                                                ++ (bool (tail p2) []
+                                                   (length p2 == 0))
+
+instance XEManagerClass (XEManager) where
+    getElements = xem_elements
+    setElements xem els = xem { xem_elements = els }
+    getFocus = xem_inFocus
+    setFocus xem foc = xem { xem_inFocus = foc }
+
+createManager :: (XMElementClass b) => [XMenuGlobal -> b]
+              -> Reader XMenuGlobal (XEManager b)
 createManager xels = (\xmap -> return $ XEManager xmap Nothing)
                    . (\xmglobal -> (map (\x -> x xmglobal) xels) ) =<< ask
 
-sendKeyInputToManager :: XEManager -> (KeyCode, String) -> IO XEManager
-sendKeyInputToManager xem kdata =
-            maybe (return xem)
-                  (\foc -> do
-                        nel <- sendKeyInput (xem_elements xem !! foc) kdata
-                        let (p1, p2) = splitAt foc $ xem_elements xem
-                        return $ xem { xem_elements = p1 ++ [nel]
-                                                   ++ (bool (tail p2) []
-                                                            (length p2 == 0)) }
-                  )
-                  (xem_inFocus xem)
+sendKeyInputToManager :: (XEManagerClass a, XMElementClass b) => a b
+                      -> (KeyCode, String) -> IO (a b)
+sendKeyInputToManager xem kdata = maybe (return xem)
+                                        (\foc -> return
+                                               . replaceElement xem foc
+                                             =<< (((flip sendKeyInput) kdata)
+                                               . getElement xem $ foc))
+                                        (getFocus xem)
 
-drawAll :: XEManager -> XMContext -> ReaderT XMenuData IO ()
-drawAll xem ctx = drawAll' (xem_elements xem) ctx
-    where drawAll' (x:xs) ctx = do
+drawAll :: (XEManagerClass a, XMElementClass b) => a b -> XMContext
+        -> ReaderT XMenuData IO ()
+drawAll xem ctx = drawAll' ctx . getElements $ xem
+    where drawAll' ctx (x:xs) = do
             drawElement ctx x
-            drawAll' xs ctx
-          drawAll' [] _ = return ()
+            drawAll' ctx xs
+          drawAll' _ [] = return ()
 
-changeFocus :: XEManager -> XEManager
-changeFocus xem = case xem_elements xem of
+changeFocus :: (XEManagerClass a, XMElementClass b) => a b -> a b
+changeFocus xem = case getElements xem of
     []          -> xem
-    otherwise   -> changeFocus' (xem_inFocus xem)
-                                (maybe 0 (nextElement xem) (xem_inFocus xem))
-                   xem
-    where changeFocus' foc curr xem' =
-                bool (changeFocus' foc (nextElement xem' curr) xem')
-                     (bool (removeOldFocus foc . setNewFocus curr
-                          $ xem' { xem_inFocus = Just curr } ) xem'
+    otherwise   -> let foc = getFocus xem
+                   in changeFocus' foc xem (maybe 0 (nextElement xem) foc)
+    where changeFocus' foc xem' curr =
+               bool (changeFocus' foc xem'
+                    . nextElement xem' $ curr)
+                     (bool (removeOldFocus foc
+                          . setNewFocus curr
+                          $ XManager.setFocus xem' $ Just curr) xem'
                           $ maybe False (curr ==) foc)
-                    $ canFocus (xem_elements xem' !! curr) || case foc of
+                    $ canFocus (getElement xem' curr) || case foc of
                         Just foc'   -> foc' == curr
-                        Nothing     -> curr + 1 == length (xem_elements xem')
+                        Nothing     -> curr + 1 == length (getElements xem')
           nextElement xem' curr =
-                    bool (curr + 1) 0 (curr + 1 == length (xem_elements xem'))
-          removeOldFocus foc xem' = maybe xem' (\foc' ->
-                        let (p1, p2) = splitAt foc' (xem_elements xem')
-                            oldf = setFocus (xem_elements xem' !! foc') False
-                        in xem' { xem_elements = p1 ++ [oldf]
-                                              ++ (bool (tail p2) []
-                                                       (length p2 == 0)) }) foc
-          setNewFocus foc xem' = let (p1, p2) = splitAt foc (xem_elements xem')
-                                     newf = setFocus (xem_elements xem' !! foc) True
-                                 in xem' { xem_elements = p1 ++ [newf]
-                                                       ++ (bool (tail p2) []
-                                                          (length p2 == 0)) }
+                    bool (curr + 1) 0 (curr + 1 == length (getElements xem'))
+          removeOldFocus foc xem' = maybe xem'
+                                          (\foc' -> replaceElement xem' foc'
+                                                  . (flip XE.setFocus False)
+                                                  . getElement xem'
+                                                  $ foc')
+                                          foc
+          setNewFocus foc xem' = replaceElement xem' foc
+                               . (flip XE.setFocus True)
+                               . getElement xem'
+                               $ foc
 
-focusOverridesEsc :: XEManager -> Bool
+focusOverridesEsc :: (XEManagerClass a, XMElementClass b) => a b -> Bool
 focusOverridesEsc xem =
     maybe False (\foc' -> gp_overridesEsc
-                        $ getGenProps (xem_elements xem !! foc'))
-          (xem_inFocus xem)
+                        $ getGenProps (getElement xem foc'))
+          (getFocus xem)
 
-unfocus :: XEManager -> XEManager
+unfocus :: (XEManagerClass a, XMElementClass b) => a b -> a b
 unfocus xem =
-    maybe xem (\foc' -> let newf = setFocus (xem_elements xem !! foc') False
-                            (p1, p2) = splitAt foc' (xem_elements xem)
-                            newels = p1 ++ [newf] ++ (bool (tail p2) []
-                                                    $ length p2 == 0)
-                        in xem { xem_elements = newels
-                               , xem_inFocus = Nothing
-                               })
-          (xem_inFocus xem)
+    maybe xem (\foc' -> (flip XManager.setFocus) Nothing
+                      . replaceElement xem foc'
+                      . (flip XE.setFocus False)
+                      . getElement xem
+                      $ foc')
+          (getFocus xem)

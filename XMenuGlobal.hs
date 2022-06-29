@@ -4,16 +4,23 @@ module XMenuGlobal
     , XMenuGlobal(..)
     , XMGenProps(..)
     , createFont
+    , getColorsDynamic
     ) where
 
 import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
                     , Screen, ScreenNumber, Display, Window
                     , Position
                     )
+import Data.Bool (bool)
 
 createFont :: String -> Int -> String
 createFont name size = "-*-" ++ name ++ "-*-*-*-*-"
                     ++ (show size) ++ "-*-*-*-*-*-*-*"
+
+getColorsDynamic :: XMGenProps -> (Pixel, Pixel)
+getColorsDynamic xgen = bool ((gp_fgColor xgen, gp_bgColor xgen))
+                             ((gp_fgFocColor xgen, gp_bgFocColor xgen))
+                             (gp_focused xgen)
 
 data XMenuOpts = XMenuOpts { g_width        :: Dimension
                            , g_height       :: Dimension
