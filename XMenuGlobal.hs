@@ -5,6 +5,7 @@ module XMenuGlobal
     , XMGenProps(..)
     , createFont
     , getColorsDynamic
+    , defaultGenProps
     ) where
 
 import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
@@ -12,6 +13,7 @@ import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
                     , Position
                     )
 import Data.Bool (bool)
+import Control.Monad.Reader (ask, Reader)
 
 createFont :: String -> Int -> String
 createFont name size = "-*-" ++ name ++ "-*-*-*-*-"
@@ -55,6 +57,7 @@ data XMGenProps = XMGenProps { gp_x             :: Position
                              , gp_fgColor       :: Pixel
                              , gp_bgColor       :: Pixel
                              , gp_border        :: Bool
+                             , gp_borderWidth   :: Dimension
                              , gp_background    :: Bool
                              , gp_fontStruct    :: FontStruct
                              , gp_focused       :: Bool
@@ -64,3 +67,9 @@ data XMGenProps = XMGenProps { gp_x             :: Position
                              , gp_bgFocColor    :: Pixel
                              }
 
+defaultGenProps :: Position -> Position -> Dimension -> Dimension -> Reader XMenuGlobal XMGenProps
+defaultGenProps x y w h = ask >>= \(XMenuGlobal xmopts xmdata) ->
+                    return $ XMGenProps x y w h (g_xPad xmopts) (g_yPad xmopts)
+                             (g_fgColor xmopts) (g_bgColor xmopts) False 1
+                             False (g_fontStruct xmdata) False True False
+                             (g_fgFocColor xmopts) (g_bgFocColor xmopts)

@@ -18,6 +18,7 @@ import XLabel
 import XContext
 import XManagerClass
 import XElement
+import XList
 
 debug = True
 
@@ -30,24 +31,10 @@ getKeyCodeProperty ev evf
     | isKeyEvent ev     = Just $ evf ev
     | otherwise         = Nothing
 
-specialChars = [ ("space",      " ")
-               , ("comma",      ",")
-               , ("period",     ".")
-               , ("underscore", "_")
-               , ("minus",      "-")
-               , ("colon",      ":")
-               , ("semicolon",  ";")
-               , ("quotedbl",   "\"")
-               , ("ampersand",  "&")
-               , ("exclam",     "!")
-               , ("parenleft",  "(")
-               , ("parenright", ")")
-               ]
+-- getKeyStr str = maybe str id $ Map.fromList specialChars Map.!? str
 
-allowedChars = (fst $ unzip specialChars) ++ alphanum
-    where alphanum = map (\ch -> [ch]) $ ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']
-
-getKeyStr str = maybe str id $ Map.fromList specialChars Map.!? str
+runReaderT' = flip runReaderT
+runReader' = flip runReader
 
 main =  do
 
@@ -55,9 +42,9 @@ main =  do
                            (createFont "Terminus" 16)
                            20 10 15 15 0x6dcfff 0x12222a
 
-    xmglobal <- runReaderT createXMenu xmopts
+    xmglob <- runReaderT createXMenu xmopts
 
-    let (XMenuGlobal _ xmdata) = xmglobal
+    let (XMenuGlobal _ xmdata) = xmglob
     let (XMenuData display _ _ fontstr xmenuw) = xmdata
 
     mapWindow display xmenuw
@@ -75,16 +62,16 @@ main =  do
                                . defaultScreenOfDisplay
                                $ display
 
-        let context = (flip runReader) xmglobal $ createContext pixmap gc
+        let context = createContext pixmap gc
 
         setForeground display gc (g_bgColor xmopts)
-        fillRectangle display pixmap gc 0 0 (c_width context)
-                      (c_height context)
+        fillRectangle display pixmap gc 0 0 (g_width xmopts)
+                      (g_height xmopts)
 
-        (flip runReaderT) xmdata $ drawAll xman context
+        runReaderT' xmdata $ drawAll xman context
 
-        copyArea display pixmap xmenuw gc 0 0 (c_width context)
-                 (c_height context) 0 0
+        copyArea display pixmap xmenuw gc 0 0 (g_width xmopts)
+                 (g_height xmopts) 0 0
 
         freeGC display gc
         freePixmap display pixmap
@@ -103,16 +90,23 @@ main =  do
 
                 when (debug) . putStrLn $ show (st, keyStr, x)
 
-                loop =<< bool (return xman)
-                              (sendKeyInputToManager xman
-                                                     (x, getKeyStr keyStr))
-                              (keyStr `elem` allowedChars || x == 22)
+                loop =<< sendKeyInputToManager xman (x, keyStr)
+
             when (x==23) . loop . changeFocus xman $ Forward
             when (x==9 && focusOverridesEsc xman) . loop . unfocus $ xman
 
             ) $ getKeyCodeProperty ev ev_keycode
 
-    let xman = (flip runReader) xmglobal
+    let list = createListE 20 90 360 100 20
+                    [ (listLabelE "E1" 0 id)
+                    , (listLabelE "E2" 0 id)
+                    , (listLabelE "E3" 0 id)
+                    ] (\lst -> lst { li_gen = (li_gen lst)
+                                              { gp_background = True
+                                              , gp_border = True }
+                                              })
+
+    let xman = runReader' xmglob
              $ createManager [ (emptyLabelE 20 20 360 50 $ \lbl -> lbl
                                            { l_gen = (l_gen lbl)
                                                      { gp_border = True
@@ -121,16 +115,8 @@ main =  do
                                            , l_onChange = putStrLn . l_val
                                            }
                                )
-                             , (defaultLabelE "Stjepan Poljak je najbolji"
-                                              20 90 100 50 $ \lbl -> lbl
-                                              { l_gen = (l_gen lbl)
-                                                        { gp_border = True
-                                                        , gp_overridesEsc = True
-                                                        }
-                                              , l_onChange = putStrLn . l_val
-                                              }
-                               )
-                             ]
+                               , list
+                               ]
     loop $ xman { xem_inFocus = Nothing }
 
     freeFont display fontstr

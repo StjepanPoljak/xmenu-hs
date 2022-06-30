@@ -1,19 +1,28 @@
 module XContext ( XMContext(..)
                 , createContext
+                , drawBorder
                 ) where
 
 import XMenuGlobal
-import Graphics.X11 (Drawable, GC, Dimension, Position)
-import Control.Monad.Reader (runReader, ask, Reader(..))
+import Graphics.X11 (Drawable, GC, Dimension, Position, drawRectangle)
+import Control.Monad.Reader (liftIO)
+import Control.Monad.Trans.Reader (ask, ReaderT)
+import Control.Monad (mapM_)
 
 data XMContext = XMContext { c_drawable :: Drawable
                            , c_gc       :: GC
-                           , c_width    :: Dimension
-                           , c_height   :: Dimension
                            }
 
-createContext :: Drawable -> GC -> Reader XMenuGlobal XMContext
-createContext drawable gc = ask >>= \xmglob -> do
-    let (XMenuGlobal xmopts _) = xmglob
-    return $ XMContext drawable gc (g_width xmopts)
-                       (g_height xmopts)
+createContext :: Drawable -> GC -> XMContext
+createContext drawable gc = XMContext drawable gc
+
+drawBorder :: XMContext -> Position -> Position
+           -> Dimension -> Dimension -> Dimension -> ReaderT XMenuData IO ()
+drawBorder context x y w h bw = ask >>= \xmdata -> liftIO $ do
+        let display = g_display xmdata
+        let (drawable, gc) = (c_drawable context, c_gc context)
+        mapM_ (\c -> drawRectangle display drawable gc
+                                   (x + fromIntegral c) (y + fromIntegral c)
+                                   (w - 2 * c - 1) (h - 2 * c - 1))
+              [1..bw]
+

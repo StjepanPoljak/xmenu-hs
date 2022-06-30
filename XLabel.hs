@@ -2,6 +2,7 @@ module XLabel
     ( XMLabel(l_gen,l_val,l_onChange)
     , defaultLabel
     , emptyLabel
+    , listLabel
     ) where
 
 import Graphics.X11
@@ -35,13 +36,33 @@ l_focused       = gp_focused . l_gen
 l_fgFocColor    = gp_fgFocColor . l_gen
 l_bgFocColor    = gp_bgFocColor . l_gen
 
+specialChars = [ ("space",      " ")
+               , ("comma",      ",")
+               , ("period",     ".")
+               , ("underscore", "_")
+               , ("minus",      "-")
+               , ("colon",      ":")
+               , ("semicolon",  ";")
+               , ("quotedbl",   "\"")
+               , ("ampersand",  "&")
+               , ("exclam",     "!")
+               , ("parenleft",  "(")
+               , ("parenright", ")")
+               ]
+
+allowedChars = (fst $ unzip specialChars) ++ alphanum
+    where alphanum = map (\ch -> [ch]) $ ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']
+
 instance XMElementClass XMLabel where
     sendKeyInput label (kc, str)
         | null str  = return label
         | otherwise = either return (\lbl -> do
                                         l_onChange lbl $ lbl
                                         return lbl)
-                    . bool (Right . appendCharToLabel label . head $ str)
+                    . bool (bool (Left label)
+                                 (Right . appendCharToLabel label
+                                        . head $ str)
+                                 (str `elem` allowedChars))
                            (case l_val label of
                                 []  -> Left label
                                 _   -> Right . removeCharFromLabel $ label)
@@ -95,20 +116,16 @@ fitText label
 
 emptyLabel :: Position -> Position -> Dimension -> Dimension
            -> Reader XMenuGlobal XMLabel
-emptyLabel x y w h = ask >>= \(XMenuGlobal xmopts xmdata) ->
-            return $ XMLabel (XMGenProps x y w h
-                             (g_xPad xmopts) (g_yPad xmopts)
-                             (g_fgColor xmopts) (g_bgColor xmopts) False
-                             False (g_fontStruct xmdata) False True False
-                             (g_fgFocColor xmopts) (g_bgFocColor xmopts)
-                             ) "" (Right "") (\_ -> return ())
+emptyLabel x y w h = defaultGenProps x y w h >>= \gp ->
+            return $ XMLabel gp "" (Right "") (\_ -> return ())
 
 defaultLabel :: String -> Position -> Position -> Dimension -> Dimension
              -> Reader XMenuGlobal XMLabel
-defaultLabel v x y w h = do
-            lbl <- emptyLabel x y w h
-            let lbl' = lbl { l_val = v }
-            return $ lbl' { l_dispVal = getDispVal lbl' }
+defaultLabel v x y w h = emptyLabel x y w h >>= \lbl ->
+            return lbl { l_dispVal = getDispVal (lbl { l_val = v } ) }
+
+listLabel :: String -> Dimension -> Reader XMenuGlobal XMLabel
+listLabel str = defaultLabel str 0 0 0
 
 -- updateLabel :: XMContext -> XMLabel -> Reader XMenuData XMLabel
 -- updateLabel context label = ask >>= \xmdata -> do
@@ -148,6 +165,7 @@ drawLabel :: XMContext -> XMLabel -> RT.ReaderT XMenuData IO ()
 drawLabel context label = RT.ask >>= \xmdata -> liftIO $ do
     let display = g_display xmdata
     let (fgColor, bgColor) = getColorsDynamic (l_gen label)
+    let (drawable, gc) = (c_drawable context, c_gc context)
     when (l_background label) $ do
             setForeground display gc bgColor
             fillRectangle display drawable gc (l_x label) (l_y label)
@@ -163,5 +181,3 @@ drawLabel context label = RT.ask >>= \xmdata -> liftIO $ do
     where lbly = fromIntegral $ (l_height label + fromIntegral asc) `div` 2
           (_, asc, _, _) = textExtents (l_fontStruct label) (l_val label)
           lblx = fromIntegral (l_xPad label) + l_x label
-          XMContext drawable gc _ _ = context
-
