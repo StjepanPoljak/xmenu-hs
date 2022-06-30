@@ -12,7 +12,6 @@ import Control.Monad.Trans.Reader (runReaderT)
 import Data.Maybe (maybe)
 import Data.Bool (bool)
 import Control.Monad (unless, when)
-import qualified Data.Map as Map
 import XMenuGlobal
 import XLabel
 import XContext
@@ -31,8 +30,6 @@ getKeyCodeProperty ev evf
     | isKeyEvent ev     = Just $ evf ev
     | otherwise         = Nothing
 
--- getKeyStr str = maybe str id $ Map.fromList specialChars Map.!? str
-
 runReaderT' = flip runReaderT
 runReader' = flip runReader
 
@@ -40,7 +37,7 @@ main =  do
 
     let xmopts = XMenuOpts 400 200 0x244758 0x12222a
                            (createFont "Terminus" 16)
-                           20 10 15 15 0x6dcfff 0x12222a
+                           5 5 15 15 0x6dcfff 0x12222a
 
     xmglob <- runReaderT createXMenu xmopts
 

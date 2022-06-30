@@ -41,7 +41,7 @@ instance XEManagerClass XMList where
     setElements list els = processList list { li_items = els }
 
 instance (XMElementClass a) => XMElementClass (XMList a) where
-    drawElement = drawList
+    drawContents = drawList
     getGenProps = li_gen
     setGenProps list gp = list { li_gen = gp }
     sendKeyInput list (kc, _)
@@ -57,6 +57,7 @@ processList list = list { li_items = fst . foldl (\(lst, lastY) item ->
         h = bool h' (li_itemHeight list) (h' == 0)
         xP = fromIntegral . gp_xPad . li_gen $ list
     in (lst ++ [updateGenProps item $ \gp ->
+
                          gp { gp_x = 0
                             , gp_y = lastY
                             , gp_width = gp_width (li_gen list) - 2 * xP
@@ -67,44 +68,15 @@ processList list = list { li_items = fst . foldl (\(lst, lastY) item ->
     , (lastY + fromIntegral h)-- . fromIntegral . gp_height . getGenProps $ item
     )) ([], fromIntegral . gp_yPad . li_gen $ list) $ li_items list }
 
-drawList :: (XMElementClass a) => XMContext -> XMList a
-                               -> RT.ReaderT XMenuData IO ()
-drawList context list = RT.ask >>= \xmdata -> liftIO $ do
-        let display = g_display xmdata
-        let lg = li_gen list
-        let (li_width, li_height) = (gp_width lg, gp_height lg)
-        let (fgColor, bgColor) = getColorsDynamic lg
-        let (li_x, li_y) = (gp_x lg, gp_y lg)
-        let (drawable, gc) = (c_drawable context, c_gc context)
-
-        pixmap <- createPixmap display drawable li_width li_height
-                $ defaultDepthOfScreen
-                . defaultScreenOfDisplay
-                $ display
-
-        when (gp_background . li_gen $ list) $ do
-            setForeground display gc bgColor
-            fillRectangle display pixmap gc 0 0 li_width li_height
-
-        mapM_ (\item -> do
-                putStrLn . show . gp_focused . getGenProps $ item
-                (flip RT.runReaderT) xmdata
-                  . drawElement context { c_drawable = pixmap } $ item)
-            . filter ((\gp -> gp_y gp + (fromIntegral . gp_height $ gp)
-                       > li_viewY list
-                      && gp_y gp
-                       < (fromIntegral . gp_height . li_gen $ list)
-                     ) . getGenProps)
-            . li_items
-            $ list
-
-        when (gp_border . li_gen $ list) $ do
-            setForeground display gc fgColor
-            (flip RT.runReaderT) xmdata $ drawBorder (createContext pixmap gc)
-                                                     0 0 li_width li_height 5
-
-
-        copyArea display pixmap drawable gc 0 0 li_width li_height li_x li_y
-
-        freePixmap display pixmap
+drawList :: (XMElementClass a) => XMContext -> XMList a -> Dimension
+                               -> Dimension -> RT.ReaderT XMenuData IO ()
+drawList context list w h = mapM_ (drawElement context)
+                          . filter ((\gp -> gp_y gp
+                                          + (fromIntegral . gp_height $ gp)
+                                          > li_viewY list
+                                         && gp_y gp
+                                          < (fromIntegral h)
+                                    ) . getGenProps)
+                          . li_items
+                          $ list
 

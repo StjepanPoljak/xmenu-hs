@@ -14,6 +14,7 @@ import Data.Bool (bool)
 import Data.Either (fromRight, either)
 import XContext
 import XElementClass
+import Data.Map (fromList, (!?))
 
 data XMLabel = XMLabel { l_gen          :: XMGenProps
                        , l_val          :: String
@@ -50,6 +51,8 @@ specialChars = [ ("space",      " ")
                , ("parenright", ")")
                ]
 
+getKeyStr str = maybe str id $ fromList specialChars !? str
+
 allowedChars = (fst $ unzip specialChars) ++ alphanum
     where alphanum = map (\ch -> [ch]) $ ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']
 
@@ -61,7 +64,7 @@ instance XMElementClass XMLabel where
                                         return lbl)
                     . bool (bool (Left label)
                                  (Right . appendCharToLabel label
-                                        . head $ str)
+                                        . head . getKeyStr $ str)
                                  (str `elem` allowedChars))
                            (case l_val label of
                                 []  -> Left label
@@ -69,7 +72,7 @@ instance XMElementClass XMLabel where
                     $ kc == 22
 
     getGenProps = l_gen
-    drawElement = drawLabel
+    drawContents = drawLabel
     setGenProps label gpr = label { l_gen = gpr }
 
 appendCharToLabel :: XMLabel -> Char -> XMLabel
@@ -110,14 +113,13 @@ fitText label
           currLabel = (fromRight "" $ l_dispVal label) ++ "..."
           dispLen = length (either id id (l_dispVal label))
 
--- TotalChars :: CurrChars = TotalWidth : CurrWidth
--- CurrChars * TotalWidth = TotalChars * CurrWidth
--- CurrChars = TotalChars * CurrWidth / TotalWidth
+emptyDispVal :: Either String String
+emptyDispVal = Right ""
 
 emptyLabel :: Position -> Position -> Dimension -> Dimension
            -> Reader XMenuGlobal XMLabel
 emptyLabel x y w h = defaultGenProps x y w h >>= \gp ->
-            return $ XMLabel gp "" (Right "") (\_ -> return ())
+            return $ XMLabel gp "" emptyDispVal (\_ -> return ())
 
 defaultLabel :: String -> Position -> Position -> Dimension -> Dimension
              -> Reader XMenuGlobal XMLabel
@@ -125,13 +127,7 @@ defaultLabel v x y w h = emptyLabel x y w h >>= \lbl ->
             return lbl { l_dispVal = getDispVal (lbl { l_val = v } ) }
 
 listLabel :: String -> Dimension -> Reader XMenuGlobal XMLabel
-listLabel str = defaultLabel str 0 0 0
-
--- updateLabel :: XMContext -> XMLabel -> Reader XMenuData XMLabel
--- updateLabel context label = ask >>= \xmdata -> do
---    where lblw = bool (l_width label) c_w (l_width label == 0)
---          lblh = bool (l_height label) (fromIntegral asc + 2 * l_yPad label)
---                      (l_height label == 0)
+listLabel v h = emptyLabel 0 0 0 h >>= \lbl -> return lbl { l_val = v }
 
 l_width' label = l_width label - 2 * (l_xPad label)
 
@@ -161,23 +157,26 @@ getDispVal label
                                                         (dv ++ "..."))
                         > fromIntegral (l_width' label)))
 
-drawLabel :: XMContext -> XMLabel -> RT.ReaderT XMenuData IO ()
-drawLabel context label = RT.ask >>= \xmdata -> liftIO $ do
+drawLabel :: XMContext -> XMLabel -> Dimension -> Dimension
+          -> RT.ReaderT XMenuData IO ()
+drawLabel context label w h = RT.ask >>= \xmdata -> do
     let display = g_display xmdata
     let (fgColor, bgColor) = getColorsDynamic (l_gen label)
     let (drawable, gc) = (c_drawable context, c_gc context)
-    when (l_background label) $ do
-            setForeground display gc bgColor
-            fillRectangle display drawable gc (l_x label) (l_y label)
-                          (l_width label) (l_height label)
-    setForeground display gc fgColor
-    setBackground display gc bgColor
-    setFont display gc (fontFromFontStruct $ l_fontStruct label)
-    when (l_border label) $ drawRectangle display drawable gc
-                                        (l_x label) (l_y label)
-                                        (l_width label) (l_height label)
-    drawImageString display drawable gc lblx (l_y label + lbly)
-                    (either id id (l_dispVal label))
-    where lbly = fromIntegral $ (l_height label + fromIntegral asc) `div` 2
+
+    when (either (\_ -> False)
+                 (\dv -> null dv && not (null . l_val $ label))
+               . l_dispVal $ label) $
+        return =<< drawLabel context
+                             (label { l_dispVal = getDispVal label }) w h
+
+    liftIO $ do
+        setForeground display gc fgColor
+        setBackground display gc bgColor
+        setFont display gc (fontFromFontStruct $ l_fontStruct label)
+
+        drawImageString display drawable gc 0 (lbly)
+                        (either id id (l_dispVal label))
+
+    where lbly = fromIntegral $ (h + fromIntegral asc) `div` 2
           (_, asc, _, _) = textExtents (l_fontStruct label) (l_val label)
-          lblx = fromIntegral (l_xPad label) + l_x label
