@@ -174,9 +174,10 @@ drawLabel context label w h = RT.ask >>= \xmdata -> do
         setForeground display gc fgColor
         setBackground display gc bgColor
         setFont display gc (fontFromFontStruct $ l_fontStruct label)
-
-        drawImageString display drawable gc 0 (lbly)
+        putStrLn $ show $ (lb, rb)
+        drawString display drawable gc 0 (lbly)
                         (either id id (l_dispVal label))
 
     where lbly = fromIntegral $ (h + fromIntegral asc) `div` 2
-          (_, asc, _, _) = textExtents (l_fontStruct label) (l_val label)
+          (_, asc, _, (lb, rb, _, _, _)) = textExtents (l_fontStruct label)
+                                                       (l_val label)

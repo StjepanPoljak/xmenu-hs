@@ -23,6 +23,6 @@ drawBorder context x y w h bw = ask >>= \xmdata -> liftIO $ do
         let (drawable, gc) = (c_drawable context, c_gc context)
         mapM_ (\c -> drawRectangle display drawable gc
                                    (x + fromIntegral c) (y + fromIntegral c)
-                                   (w - 2 * c - 1) (h - 2 * c - 1))
-              [1..bw]
+                                   (w - 2 * c - 2) (h - 2 * c - 2))
+              [0..(bw - 1)]
 

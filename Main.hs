@@ -11,13 +11,16 @@ import Control.Monad.Reader (runReader)
 import Control.Monad.Trans.Reader (runReaderT)
 import Data.Maybe (maybe)
 import Data.Bool (bool)
-import Control.Monad (unless, when)
+import Control.Monad (unless, when, (<=<), liftM, foldM)
 import XMenuGlobal
 import XLabel
 import XContext
 import XManagerClass
 import XElement
 import XList
+import System.Environment (getEnv)
+import System.Directory (getDirectoryContents)
+import Data.List (isPrefixOf, concat)
 
 debug = True
 
@@ -33,11 +36,27 @@ getKeyCodeProperty ev evf
 runReaderT' = flip runReaderT
 runReader' = flip runReader
 
+splitPathVar str = case dropWhile (== ':') str of
+                        "" -> []
+                        s' -> w : splitPathVar s''
+                              where (w, s'') = break (==':') s'
+
+getPathVar = liftM splitPathVar $ getEnv "PATH"
+
+getFilesFromPathVar = foldM (\acc x -> liftM (filter (not
+                                                   . (flip elem) [".", ".."])
+                                            . concat
+                                            . (:[acc]))
+                                            $ getDirectoryContents x) []
+                  =<< getPathVar
+
 main =  do
+
+    execList <- getFilesFromPathVar
 
     let xmopts = XMenuOpts 400 200 0x244758 0x12222a
                            (createFont "Terminus" 16)
-                           5 5 15 15 0x6dcfff 0x12222a
+                           10 5 15 15 0x6dcfff 0x12222a
 
     xmglob <- runReaderT createXMenu xmopts
 
@@ -94,14 +113,19 @@ main =  do
 
             ) $ getKeyCodeProperty ev ev_keycode
 
-    let list = createListE 20 90 360 100 20
-                    [ (listLabelE "E1" 0 id)
-                    , (listLabelE "E2" 0 id)
-                    , (listLabelE "E3" 0 id)
-                    ] (\lst -> lst { li_gen = (li_gen lst)
-                                              { gp_background = True
-                                              , gp_border = True }
-                                              })
+    let labelProps = (\lbl -> lbl { l_gen = (l_gen lbl)
+                                            { gp_border = True } })
+
+    let list = createListE 20 90 360 100 35
+             . map (\str -> listLabelE str 0 labelProps)
+             $ [ ("E1")
+               , ("E2")
+               , ("E3")
+               , ("E4")
+               , ("E5")
+               , ("E6")
+               , ("E7")
+               ]
 
     let xman = runReader' xmglob
              $ createManager [ (emptyLabelE 20 20 360 50 $ \lbl -> lbl
@@ -109,11 +133,16 @@ main =  do
                                                      { gp_border = True
                                                      , gp_overridesEsc = True
                                                      }
-                                           , l_onChange = putStrLn . l_val
+                                           , l_onChange = \l -> print $ filter (isPrefixOf . l_val $ l) execList
                                            }
                                )
-                               , list
-                               ]
+                             , (list $ \lst -> lst
+                                           { li_gen = (li_gen lst)
+                                                    { gp_overridesEsc = True
+                                                    , gp_border = True }
+                                           }
+                               )
+                             ]
     loop $ xman { xem_inFocus = Nothing }
 
     freeFont display fontstr

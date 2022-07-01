@@ -6,6 +6,7 @@ module XMenuGlobal
     , createFont
     , getColorsDynamic
     , defaultGenProps
+    , debugColor
     ) where
 
 import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
@@ -14,6 +15,9 @@ import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
                     )
 import Data.Bool (bool)
 import Control.Monad.Reader (ask, Reader)
+
+debugColor :: Pixel
+debugColor = 0xff0000
 
 createFont :: String -> Int -> String
 createFont name size = "-*-" ++ name ++ "-*-*-*-*-"

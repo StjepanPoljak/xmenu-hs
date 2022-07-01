@@ -2,6 +2,7 @@ module XManagerClass ( XEManager(..)
                      , createManager
                      , XEManagerClass(..)
                      , XEFocusDirection(..)
+                     , direction
                      ) where
 
 import Graphics.X11 (KeyCode)
@@ -18,9 +19,9 @@ data XEManager a = XEManager { xem_elements   :: [a]
                              }
 data XEFocusDirection = Forward | Backward deriving (Eq)
 
-direction :: XEFocusDirection -> a -> a -> a
-direction Forward x _ = x
-direction Backward _ x = x
+direction :: a -> a -> XEFocusDirection -> a
+direction x _ Forward = x
+direction _ x Backward = x
 
 class XEManagerClass f where
     getElements :: (XMElementClass a) => f a -> [a]
@@ -74,10 +75,11 @@ class XEManagerClass f where
         []          -> xem
         otherwise   -> let foc = getFocus xem
                        in changeFocus' foc xem dir
-                        . direction dir (maybe 0
-                                               (nextElement xem))
-                                        (maybe (xemCount xem - 1)
-                                               (prevElement xem))
+                        . direction (maybe 0
+                                           (nextElement xem))
+                                    (maybe (xemCount xem - 1)
+                                           (prevElement xem))
+                                    dir
                         $ foc
 
         where changeFocus' foc xem' dir curr

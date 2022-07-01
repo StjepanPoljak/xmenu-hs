@@ -42,9 +42,12 @@ class XMElementClass a where
                                       . defaultScreenOfDisplay
                                       $ display
 
-        liftIO $ bool (copyArea display drawable pixmap gc el_x el_y
-                       el_w el_h 0 0)
+        liftIO $ bool (copyArea display drawable pixmap gc
+                                (el_x + fromIntegral xPad)
+                                (el_y + fromIntegral yPad)
+                                el_w el_h 0 0)
                       (do setForeground display gc bgColor
+                          fillRectangle display drawable gc el_x el_y el_w el_h
                           fillRectangle display pixmap gc 0 0 el_w el_h)
                       (gp_background el_gp)
 
@@ -52,14 +55,15 @@ class XMElementClass a where
         drawContents (createContext pixmap gc) el
                      (el_w - 2 * xPad) (el_h - 2 * yPad)
 
-        liftIO $ do
-            copyArea display pixmap drawable gc 0 0
-                     el_w el_h (el_x + fromIntegral xPad) (el_y + fromIntegral yPad)
-
-            freePixmap display pixmap
-
         when (gp_border el_gp) $ do
             liftIO . setForeground display gc $ fgColor
             drawBorder context el_x el_y el_w el_h
                        (gp_borderWidth el_gp)
 
+        liftIO $ do
+            copyArea display pixmap drawable gc 0 0
+                     (el_w - 2 * xPad) (el_h - 2 * yPad)
+                     (el_x + fromIntegral xPad)
+                     (el_y + fromIntegral yPad)
+
+        liftIO $ freePixmap display pixmap
