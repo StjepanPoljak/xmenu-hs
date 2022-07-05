@@ -13,6 +13,8 @@ import Control.Monad.Trans.Reader (ReaderT)
 import Control.Monad.Reader (Reader, ask, liftIO, mfilter)
 import Data.Bool (bool)
 import Data.Maybe (isJust)
+import Control.Monad ((<=<))
+import Data.List (findIndex)
 
 data XEManager a = XEManager { xem_elements   :: [a]
                              , xem_inFocus    :: Maybe Int
@@ -32,6 +34,20 @@ class XEManagerClass f where
     getElement :: (XMElementClass a) => f a -> Int -> a
     getElement xem no = (getElements xem) !! no
 
+    getElementByName :: (XMElementClass a) => f a -> String -> Maybe Int
+    getElementByName xem name = findIndex ((==name)
+                                        . gp_name
+                                        . getGenProps)
+                              . getElements $ xem
+
+    modifyElementByName :: (XMElementClass a) => f a -> String
+                                              -> (a -> a) -> f a
+    modifyElementByName xem name f = maybe xem (\no ->
+                                        replaceElement xem no
+                                      . f
+                                      . getElement xem
+                                      $ no) $ getElementByName xem name
+
     replaceElement :: (XMElementClass a) => f a -> Int -> a -> f a
     replaceElement xem no el = let (p1, p2) = splitAt no
                                             . getElements $ xem
@@ -42,21 +58,24 @@ class XEManagerClass f where
 
     sendKeyInputToManager :: (XMElementClass a) => f a
                           -> (KeyCode, String) -> IO (f a)
-    sendKeyInputToManager xem kdata@(kc, _) = case getFocus xem of
-        Just foc    -> bool ( return
-                            . replaceElement xem foc
-                          =<< ((flip sendKeyInput) kdata
-                            . getElement xem $ foc)
-                            )
-                            ( return
-                            . unfocus $ xem
-                            ) $ kc == 9 && focusOverridesEsc xem
+    sendKeyInputToManager xem kdata@(kc, _) = maybe (return xem)
+        (\foc -> case kc of
+            9   -> bool (forwardKeyTo foc) (return . unfocus $ xem)
+                 . focusOverridesEsc $ xem
 
-        Nothing     -> return xem
+            _   -> forwardKeyTo foc
+
+        ) . getFocus $ xem
+
+        where forwardKeyTo foc = return
+                               . replaceElement xem foc
+                             <=< (flip sendKeyInput) kdata
+                               . getElement xem $ foc
 
     drawAll :: (XMElementClass a) => f a -> XMContext
             -> ReaderT XMenuData IO ()
     drawAll xem ctx = drawAll' ctx . getElements $ xem
+
         where drawAll' ctx lst = case lst of
                         (x:xs)  -> do drawElement ctx x
                                       drawAll' ctx xs
@@ -87,8 +106,8 @@ class XEManagerClass f where
                   maybe (curr + 1 == xemCount xem') (curr==) foc
                             = bool ( removeOldFocus foc
                                    . setNewFocus curr
-                                   $ XManagerClass.setFocus xem'
-                                   $ Just curr) xem'
+                                   . XManagerClass.setFocus xem'
+                                   . Just $ curr) xem'
                             . isJust
                             . mfilter (curr==)
                             $ foc
@@ -107,12 +126,11 @@ class XEManagerClass f where
 
               xemCount xem' = length . getElements $ xem'
 
-              removeOldFocus foc xem' = case foc of
-                Nothing     -> xem'
-                Just foc'   -> replaceElement xem' foc'
-                             . (flip XE.setFocus False)
-                             . getElement xem'
-                             $ foc'
+              removeOldFocus foc xem' = maybe xem'
+                (\foc' -> replaceElement xem' foc'
+                        . (flip XE.setFocus False)
+                        . getElement xem'
+                        $ foc') foc
 
               setNewFocus foc xem' = replaceElement xem' foc
                                    . (flip XE.setFocus True)
@@ -120,14 +138,12 @@ class XEManagerClass f where
                                    $ foc
 
     unfocus :: (XMElementClass a) => f a -> f a
-    unfocus xem = case getFocus xem of
-        Just foc    -> (flip XManagerClass.setFocus) Nothing
-                     . replaceElement xem foc
-                     . (flip XE.setFocus False)
-                     . getElement xem
-                     $ foc
-
-        Nothing     -> xem
+    unfocus xem = maybe xem
+        (\foc -> (flip XManagerClass.setFocus) Nothing
+               . replaceElement xem foc
+               . (flip XE.setFocus False)
+               . getElement xem
+               $ foc) . getFocus $ xem
 
 instance XEManagerClass (XEManager) where
     getElements = xem_elements
@@ -140,5 +156,4 @@ createManager :: (XMElementClass b) => [XMenuGlobal -> b]
 createManager xels = (\xmap -> return $ XEManager xmap Nothing)
                    . (\xmglobal -> (map (\x -> x xmglobal) xels) )
                  =<< ask
-
 

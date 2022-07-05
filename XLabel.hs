@@ -116,18 +116,18 @@ fitText label
 emptyDispVal :: Either String String
 emptyDispVal = Right ""
 
-emptyLabel :: Position -> Position -> Dimension -> Dimension
+emptyLabel :: String -> Position -> Position -> Dimension -> Dimension
            -> Reader XMenuGlobal XMLabel
-emptyLabel x y w h = defaultGenProps x y w h >>= \gp ->
+emptyLabel name x y w h = defaultGenProps name x y w h >>= \gp ->
             return $ XMLabel gp "" emptyDispVal (\_ -> return ())
 
-defaultLabel :: String -> Position -> Position -> Dimension -> Dimension
+defaultLabel :: String -> String -> Position -> Position -> Dimension -> Dimension
              -> Reader XMenuGlobal XMLabel
-defaultLabel v x y w h = emptyLabel x y w h >>= \lbl ->
+defaultLabel name v x y w h = emptyLabel name x y w h >>= \lbl ->
             return lbl { l_dispVal = getDispVal (lbl { l_val = v } ) }
 
-listLabel :: String -> Dimension -> Reader XMenuGlobal XMLabel
-listLabel v h = emptyLabel 0 0 0 h >>= \lbl -> return lbl { l_val = v }
+listLabel :: String -> String -> Dimension -> Reader XMenuGlobal XMLabel
+listLabel name v h = emptyLabel name 0 0 0 h >>= \lbl -> return lbl { l_val = v }
 
 l_width' label = l_width label - 2 * (l_xPad label)
 
@@ -174,10 +174,9 @@ drawLabel context label w h = RT.ask >>= \xmdata -> do
         setForeground display gc fgColor
         setBackground display gc bgColor
         setFont display gc (fontFromFontStruct $ l_fontStruct label)
-        putStrLn $ show $ (lb, rb)
-        drawString display drawable gc 0 (lbly)
+        drawImageString display drawable gc 0 (lbly)
                         (either id id (l_dispVal label))
 
     where lbly = fromIntegral $ (h + fromIntegral asc) `div` 2
-          (_, asc, _, (lb, rb, _, _, _)) = textExtents (l_fontStruct label)
+          (_, asc, _, _) = textExtents (l_fontStruct label)
                                                        (l_val label)

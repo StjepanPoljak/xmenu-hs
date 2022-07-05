@@ -52,7 +52,8 @@ data XMenuGlobal = XMenuGlobal { g_xmopts   :: XMenuOpts
                                , g_xmdata   :: XMenuData
                                }
 
-data XMGenProps = XMGenProps { gp_x             :: Position
+data XMGenProps = XMGenProps { gp_name          :: String
+                             , gp_x             :: Position
                              , gp_y             :: Position
                              , gp_width         :: Dimension
                              , gp_height        :: Dimension
@@ -71,9 +72,11 @@ data XMGenProps = XMGenProps { gp_x             :: Position
                              , gp_bgFocColor    :: Pixel
                              }
 
-defaultGenProps :: Position -> Position -> Dimension -> Dimension -> Reader XMenuGlobal XMGenProps
-defaultGenProps x y w h = ask >>= \(XMenuGlobal xmopts xmdata) ->
-                    return $ XMGenProps x y w h (g_xPad xmopts) (g_yPad xmopts)
+defaultGenProps :: String -> Position -> Position -> Dimension -> Dimension
+                -> Reader XMenuGlobal XMGenProps
+defaultGenProps name x y w h = ask >>= \(XMenuGlobal xmopts xmdata) ->
+                    return $ XMGenProps name x y w h
+                             (g_xPad xmopts) (g_yPad xmopts)
                              (g_fgColor xmopts) (g_bgColor xmopts) False 1
                              False (g_fontStruct xmdata) False True False
                              (g_fgFocColor xmopts) (g_bgFocColor xmopts)

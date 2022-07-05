@@ -21,7 +21,6 @@ createXMenu = ask >>= \xmopts -> liftIO $ do
     window <- allocaSetWindowAttributes
         (\attributes -> do
             set_override_redirect attributes True
-            set_background_pixel attributes (g_bgColor xmopts)
             createWindow display rootw (fst xmpos) (snd xmpos)
                            (g_width xmopts) (g_height xmopts) 1
                            (defaultDepthOfScreen screen)

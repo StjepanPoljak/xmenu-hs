@@ -16,11 +16,24 @@ import Graphics.X11 (Dimension)
 data XMElement = XMLabelE XMLabel
                | XMListE (XMList XMElement)
 
-defaultLabelE v x y w h f = XMLabelE . f . runReader (defaultLabel v x y w h)
-emptyLabelE x y w h f = XMLabelE . f . runReader (emptyLabel x y w h)
-listLabelE v h f = XMLabelE . f . runReader (listLabel v h)
+defaultLabelE name v x y w h f = XMLabelE
+                               . f
+                               . runReader (defaultLabel name v x y w h)
 
-createListE x y w h ih l f = XMListE . f . runReader (createList x y w h ih l)
+emptyLabelE name x y w h f = XMLabelE
+                           . f
+                           . runReader (emptyLabel name x y w h)
+
+listLabelE name v h f = XMLabelE
+                      . f
+                      . runReader (listLabel name v h)
+
+createListE name x y w h ih l f = XMListE
+                                . f
+                                . runReader (createList name x y w h ih l)
+
+-- toList :: XMElement -> XMLabel
+-- toList xem = xem_
 
 instance XMElementClass XMElement where
     sendKeyInput (XMLabelE label) = liftM XMLabelE

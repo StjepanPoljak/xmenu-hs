@@ -1,5 +1,5 @@
 module XList ( XMList(li_gen, li_itemHeight)
-             , createList
+             , createList, clearList
              ) where
 
 import XMenuGlobal
@@ -27,15 +27,22 @@ data XMList a = XMList { li_gen         :: XMGenProps
                        , li_itemHeight  :: Dimension
                        }
 
-createList :: (XMElementClass a) => Position -> Position -> Dimension
-                                  -> Dimension -> Dimension
-                                  -> [XMenuGlobal -> a]
-                                  -> Reader XMenuGlobal (XMList a)
-createList x y w h ih lst = ((uncurry . liftM2 $ (,))
-                          $ ((defaultGenProps x y w h), ask))
-                        >>= \(gp, xmg) -> return
-                                        . (flip setElements) (map (xmg &) lst)
+createList :: (XMElementClass a) => String -> Position -> Position
+                                 -> Dimension -> Dimension -> Dimension
+                                 -> [XMenuGlobal -> a]
+                                 -> Reader XMenuGlobal (XMList a)
+createList name x y w h ih lst = ((uncurry . liftM2 $ (,))
+                               $ ((defaultGenProps name x y w h), ask))
+                             >>= \(gp, xmg) -> return
+                                             . (flip setElements)
+                                               (map (xmg &) lst)
                                         $ XMList gp [] Nothing 0 ih
+
+class (XEManagerClass l) => XMListClass l where
+    getSelected :: (XMElementClass a) => l a -> Maybe Int
+    getSelected = XManagerClass.getFocus
+    setSelected :: (XMElementClass a) => l a -> Maybe Int -> l a
+    setSelected = XManagerClass.setFocus
 
 instance XEManagerClass XMList where
     getElements = li_items
@@ -48,11 +55,16 @@ instance (XMElementClass a) => XMElementClass (XMList a) where
     getGenProps = li_gen
     setGenProps list gp = list { li_gen = gp }
     sendKeyInput list (kc, _)
-        | kc == 111 || kc == 116    = return
-                                    . bool ((flip keyScrollToFocus) kcToDir
-                                            . changeFocus list $ kcToDir)
-                                           list
-                                    . direction focIsLast focIsFirst $ kcToDir
+        | kc == 111 || kc == 116    = case getFocus list of
+            Just foc'   -> return
+                         . bool ((flip keyScrollToFocus) kcToDir
+                                 . changeFocus list
+                                 $ kcToDir)
+                                list
+                         . direction (foc' + 1 == length (li_items list))
+                                     (foc' == 0)
+                         $ kcToDir
+            Nothing     -> return . changeFocus list $ Forward
 
         | otherwise                 = return list
         where kcToDir = case kc of
@@ -117,3 +129,14 @@ keyScrollToFocus list dir = bool list (direction scrollDown scrollUp dir) . isFo
                                        + fromIntegral (gp_height gpFoc)
                                        - fromIntegral (gp_height gpList) }
           scrollUp = list { li_viewY = gp_y gpFoc }
+
+clearList :: (XMElementClass a) => XMList a -> XMList a
+clearList = (flip setElements) []
+          . (flip XManagerClass.setFocus) Nothing
+
+insertElement :: (XMElementClass a) => XMList a -> a -> Int -> XMList a
+insertElement list el pos = processList
+                          . setElements list
+                          $ take pos (li_items list)
+                         ++ el:drop pos (li_items list)
+
