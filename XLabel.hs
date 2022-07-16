@@ -1,5 +1,5 @@
 module XLabel
-    ( XMLabel(l_gen,l_val,l_onChange)
+    ( XMLabel(l_gen,l_val,l_cbs)
     , defaultLabel
     , emptyLabel
     , listLabel
@@ -9,7 +9,7 @@ import Graphics.X11
 import XMenuGlobal
 import qualified Control.Monad.Trans.Reader as RT (runReaderT, ReaderT, ask)
 import Control.Monad.Reader (runReader, Reader, ask, liftIO)
-import Control.Monad (when, unless, liftM)
+import Control.Monad (when, unless, liftM, (<=<))
 import Data.Bool (bool)
 import Data.Either (fromRight, either)
 import XContext
@@ -17,9 +17,9 @@ import XElementClass
 import Data.Map (fromList, (!?))
 
 data XMLabel = XMLabel { l_gen          :: XMGenProps
+                       , l_cbs          :: XMCallbacks XMLabel
                        , l_val          :: String
                        , l_dispVal      :: Either String String
-                       , l_onChange     :: XMLabel -> IO ()
                        }
 
 l_x             = gp_x . l_gen
@@ -57,23 +57,26 @@ allowedChars = (fst $ unzip specialChars) ++ alphanum
     where alphanum = map (\ch -> [ch]) $ ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']
 
 instance XMElementClass XMLabel where
-    sendKeyInput label (kc, str)
-        | null str  = return label
-        | otherwise = either return (\lbl -> do
-                                        l_onChange lbl $ lbl
-                                        return lbl)
-                    . bool (bool (Left label)
-                                 (Right . appendCharToLabel label
-                                        . head . getKeyStr $ str)
-                                 (str `elem` allowedChars))
-                           (case l_val label of
-                                []  -> Left label
-                                _   -> Right . removeCharFromLabel $ label)
-                    $ kc == 22
+    sendKeyInput label (kc, str) =
+
+        (\lbl -> runCB2 lbl (kc, str) cb_onKeyPress) =<< case str of
+
+            []  -> return label
+
+            _   -> either return ((flip runCB) cb_onChange)
+                 . bool (bool (Left label)
+                              (Right . appendCharToLabel label
+                                     . head . getKeyStr $ str)
+                              (str `elem` allowedChars))
+                        (case l_val label of
+                              []  -> Left label
+                              _   -> Right . removeCharFromLabel $ label)
+                 $ kc == 22
 
     getGenProps = l_gen
     drawContents = drawLabel
     setGenProps label gpr = label { l_gen = gpr }
+    getCallbacks = Just . l_cbs
 
 appendCharToLabel :: XMLabel -> Char -> XMLabel
 appendCharToLabel label char = case l_dispVal label of
@@ -119,15 +122,16 @@ emptyDispVal = Right ""
 emptyLabel :: String -> Position -> Position -> Dimension -> Dimension
            -> Reader XMenuGlobal XMLabel
 emptyLabel name x y w h = defaultGenProps name x y w h >>= \gp ->
-            return $ XMLabel gp "" emptyDispVal (\_ -> return ())
+            return $ XMLabel gp defaultCallbacks "" emptyDispVal
 
-defaultLabel :: String -> String -> Position -> Position -> Dimension -> Dimension
-             -> Reader XMenuGlobal XMLabel
+defaultLabel :: String -> String -> Position -> Position -> Dimension
+             -> Dimension -> Reader XMenuGlobal XMLabel
 defaultLabel name v x y w h = emptyLabel name x y w h >>= \lbl ->
             return lbl { l_dispVal = getDispVal (lbl { l_val = v } ) }
 
 listLabel :: String -> String -> Dimension -> Reader XMenuGlobal XMLabel
-listLabel name v h = emptyLabel name 0 0 0 h >>= \lbl -> return lbl { l_val = v }
+listLabel name v h = emptyLabel name 0 0 0 h >>= \lbl ->
+            return lbl { l_val = v }
 
 l_width' label = l_width label - 2 * (l_xPad label)
 
@@ -157,18 +161,18 @@ getDispVal label
                                                         (dv ++ "..."))
                         > fromIntegral (l_width' label)))
 
-drawLabel :: XMContext -> XMLabel -> Dimension -> Dimension
+drawLabel :: XMContext -> XMLabel -> Dimension -> Dimension -> Bool
           -> RT.ReaderT XMenuData IO ()
-drawLabel context label w h = RT.ask >>= \xmdata -> do
+drawLabel context label w h focd = RT.ask >>= \xmdata -> do
     let display = g_display xmdata
-    let (fgColor, bgColor) = getColorsDynamic (l_gen label)
+    let (fgColor, bgColor) = getColorsDynamic (l_gen label) focd
     let (drawable, gc) = (c_drawable context, c_gc context)
 
     when (either (\_ -> False)
                  (\dv -> null dv && not (null . l_val $ label))
                . l_dispVal $ label) $
         return =<< drawLabel context
-                             (label { l_dispVal = getDispVal label }) w h
+                             (label { l_dispVal = getDispVal label }) w h focd
 
     liftIO $ do
         setForeground display gc fgColor

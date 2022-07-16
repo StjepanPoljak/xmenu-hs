@@ -1,5 +1,5 @@
 module XList ( XMList(li_gen, li_itemHeight)
-             , createList, clearList
+             , createList, clearList, resetList
              ) where
 
 import XMenuGlobal
@@ -19,9 +19,13 @@ import Control.Monad (when, sequence, liftM2, mfilter)
 import Data.Bool (bool)
 import Data.Function ((&))
 import Data.Maybe (isJust)
+import qualified Data.Foldable as F (toList)
+import qualified Data.Sequence as S
 
 data XMList a = XMList { li_gen         :: XMGenProps
-                       , li_items       :: [a]
+                       , li_cbs         :: XMCallbacks (XMList a)
+                       , li_items       :: XMItems a
+                       , li_length      :: Int
                        , li_selected    :: Maybe Int
                        , li_viewY       :: Position
                        , li_itemHeight  :: Dimension
@@ -35,50 +39,61 @@ createList name x y w h ih lst = ((uncurry . liftM2 $ (,))
                                $ ((defaultGenProps name x y w h), ask))
                              >>= \(gp, xmg) -> return
                                              . (flip setElements)
-                                               (map (xmg &) lst)
-                                        $ XMList gp [] Nothing 0 ih
+                                               (S.fromList
+                                                 . map (xmg &) $ lst)
+                                        $ XMList gp defaultCallbacks S.empty 0
+                                                 Nothing 0 ih
 
-class (XEManagerClass l) => XMListClass l where
-    getSelected :: (XMElementClass a) => l a -> Maybe Int
-    getSelected = XManagerClass.getFocus
-    setSelected :: (XMElementClass a) => l a -> Maybe Int -> l a
-    setSelected = XManagerClass.setFocus
+-- class (XEManagerClass l) => XMListClass l where
+--     getSelected :: (XMElementClass a) => l a -> Maybe Int
+--     getSelected = XManagerClass.getFocus
+--     setSelected :: (XMElementClass a) => l a -> Maybe Int -> l a
+--     setSelected = XManagerClass.setFocus
 
 instance XEManagerClass XMList where
     getElements = li_items
     getFocus = li_selected
     setFocus list foc = list { li_selected = foc }
-    setElements list els = processList list { li_items = els }
+    setElements list els = processList $ list { li_items = els
+                                              , li_length = S.length els
+                                              }
 
 instance (XMElementClass a) => XMElementClass (XMList a) where
     drawContents = drawList
+
     getGenProps = li_gen
     setGenProps list gp = list { li_gen = gp }
-    sendKeyInput list (kc, _)
-        | kc == 111 || kc == 116    = case getFocus list of
-            Just foc'   -> return
-                         . bool ((flip keyScrollToFocus) kcToDir
-                                 . changeFocus list
-                                 $ kcToDir)
-                                list
-                         . direction (foc' + 1 == length (li_items list))
-                                     (foc' == 0)
-                         $ kcToDir
-            Nothing     -> return . changeFocus list $ Forward
 
-        | otherwise                 = return list
+    getCallbacks = Just . li_cbs
+
+    sendKeyInput list (kc, str) = (\lst -> runCB2 lst (kc, str) cb_onKeyPress)
+        =<< bool (return list)
+                 (maybe (return . changeFocus list $ Forward)
+                        (\foc -> return
+                               . bool ((flip keyScrollToFocus) kcToDir
+                                      . changeFocus list $ kcToDir)
+                                      list
+                               . direction (foc + 1 == li_length list)
+                                           (foc == 0)
+                               $ kcToDir) $ getFocus list)
+                 (kc == 111 || kc == 116)
+
         where kcToDir = case kc of
                     111 -> Backward
                     116 -> Forward
-              focIsLast = isJust . mfilter (-1 + length (li_items list) ==) . getFocus $ list
-              focIsFirst = isJust . mfilter (0 ==) . getFocus $ list
+
+              focIsLast = isJust . mfilter (-1 + li_length list ==)
+                        . getFocus $ list
+
+              focIsFirst = isJust . mfilter (0 ==)
+                         . getFocus $ list
 
 processList :: (XMElementClass a) => XMList a -> XMList a
-processList list = list { li_items = fst . foldl (\(lst, lastY) item ->
+processList list = list { li_items = fst . S.foldlWithIndex (\(lst, lastY) _ item ->
     let h' = fromIntegral . gp_height . getGenProps $ item
         h = bool h' (li_itemHeight list) (h' == 0)
         xP = fromIntegral . gp_xPad $ lgp
-    in (lst ++ [updateGenProps item $ \gp ->
+    in (lst S.>< S.fromList [updateGenProps item $ \gp ->
 
                          gp { gp_x = 0
                             , gp_y = lastY
@@ -86,24 +101,30 @@ processList list = list { li_items = fst . foldl (\(lst, lastY) item ->
                             , gp_height = h
                             , gp_overridesEsc = False
                             }
-             ]
+                    ]
     , lastY + fromIntegral h
-    )) ([], fromIntegral (gp_yPad lgp)) $ li_items list }
+    )) (S.empty, fromIntegral (gp_yPad lgp)) $ li_items list }
     where lgp = li_gen list
 
 drawList :: (XMElementClass a) => XMContext -> XMList a -> Dimension
-                               -> Dimension -> RT.ReaderT XMenuData IO ()
-drawList context list w h = mapM_ (drawElement context)
-                          . map ((flip updateGenProps)
-                                 (\gp -> gp { gp_y = gp_y gp - li_viewY list }))
-                          . filter ((\gp -> gp_y gp
-                                          + (fromIntegral . gp_height $ gp)
-                                          > li_viewY list
-                                         && gp_y gp
-                                          < li_viewY list + (fromIntegral h)
-                                    ) . getGenProps)
-                          . li_items
-                          $ list
+                               -> Dimension -> Bool
+                               -> RT.ReaderT XMenuData IO ()
+drawList cntxt list w h _ = mapM_ (\(i, e) -> drawElement cntxt e (isJust . mfilter (i==) . getFocus $ list))
+                          . map (\(i, e) -> (i, updateGenProps e
+                                  (\gp -> gp {gp_y = gp_y gp - li_viewY list})))
+                          . F.toList
+                          . S.takeWhileL ((\gp -> -- gp_y gp
+                                          --  + (fromIntegral . gp_height $ gp)
+                                         --   > li_viewY list
+                                         --  &&
+                                            gp_y gp
+                                            < li_viewY list + (fromIntegral h)
+                                          ) . getGenProps . snd)
+                          . S.dropWhileL ((\gp -> gp_y gp
+                                             + (fromIntegral . gp_height $ gp)
+                                            <= li_viewY list) . getGenProps . snd)
+                          -- . (\x -> S.slice 0 (min 10 (length x)) x)
+                          . S.mapWithIndex ((,)) . li_items $ list
 
 isFocusOutside :: (XMElementClass a) => XMList a -> Bool
 isFocusOutside list = isJust
@@ -131,12 +152,15 @@ keyScrollToFocus list dir = bool list (direction scrollDown scrollUp dir) . isFo
           scrollUp = list { li_viewY = gp_y gpFoc }
 
 clearList :: (XMElementClass a) => XMList a -> XMList a
-clearList = (flip setElements) []
-          . (flip XManagerClass.setFocus) Nothing
+clearList = (flip setElements) S.empty
+          . (flip setFocus) Nothing
+
+resetList :: (XMElementClass a) => XMList a -> XMList a
+resetList = (\lst -> lst { li_viewY = 0 }) . (flip setFocus) Nothing
 
 insertElement :: (XMElementClass a) => XMList a -> a -> Int -> XMList a
 insertElement list el pos = processList
                           . setElements list
-                          $ take pos (li_items list)
-                         ++ el:drop pos (li_items list)
+                          $ S.take pos (li_items list)
+                       S.>< (S.singleton el) S.>< S.drop pos (li_items list)
 

@@ -3,18 +3,25 @@ module XMenuGlobal
     , XMenuData(..)
     , XMenuGlobal(..)
     , XMGenProps(..)
+    , XMCallbacks(..)
+    , XMCallbackT
+    , XMCallback2T
     , createFont
     , getColorsDynamic
     , defaultGenProps
+    , runCallback
+    , runCallback2
+    , defaultCallbacks
     , debugColor
     ) where
 
 import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
                     , Screen, ScreenNumber, Display, Window
-                    , Position
+                    , Position, KeyCode
                     )
 import Data.Bool (bool)
 import Control.Monad.Reader (ask, Reader)
+import Control.Monad ((<=<))
 
 debugColor :: Pixel
 debugColor = 0xff0000
@@ -23,10 +30,10 @@ createFont :: String -> Int -> String
 createFont name size = "-*-" ++ name ++ "-*-*-*-*-"
                     ++ (show size) ++ "-*-*-*-*-*-*-*"
 
-getColorsDynamic :: XMGenProps -> (Pixel, Pixel)
-getColorsDynamic xgen = bool ((gp_fgColor xgen, gp_bgColor xgen))
-                             ((gp_fgFocColor xgen, gp_bgFocColor xgen))
-                             (gp_focused xgen)
+getColorsDynamic :: XMGenProps -> Bool -> (Pixel, Pixel)
+getColorsDynamic xgen focd = bool ((gp_fgColor xgen, gp_bgColor xgen))
+                                  ((gp_fgFocColor xgen, gp_bgFocColor xgen))
+                                  focd
 
 data XMenuOpts = XMenuOpts { g_width        :: Dimension
                            , g_height       :: Dimension
@@ -71,6 +78,25 @@ data XMGenProps = XMGenProps { gp_name          :: String
                              , gp_fgFocColor    :: Pixel
                              , gp_bgFocColor    :: Pixel
                              }
+
+type XMCallbackT a = Maybe (a -> IO a)
+type XMCallback2T a b = Maybe (a -> b -> IO a)
+
+runCallback :: XMCallbackT a -> a -> IO a
+runCallback (Just act) el = act el
+runCallback Nothing el = return el
+
+runCallback2 :: XMCallback2T a b -> a -> b -> IO a
+runCallback2 (Just act) el el2 = act el el2
+runCallback2 Nothing el _ = return el
+
+data XMCallbacks a = XMCallbacks
+        { cb_onKeyPress    :: XMCallback2T a (KeyCode, String)
+        , cb_onChange      :: XMCallbackT a
+        }
+
+defaultCallbacks :: XMCallbacks a
+defaultCallbacks = XMCallbacks Nothing Nothing
 
 defaultGenProps :: String -> Position -> Position -> Dimension -> Dimension
                 -> Reader XMenuGlobal XMGenProps

@@ -13,28 +13,35 @@ import Data.Bool (bool)
 
 class XMElementClass a where
     sendKeyInput :: a -> (KeyCode, String) -> IO a
-    drawContents :: XMContext -> a -> Dimension -> Dimension -> ReaderT XMenuData IO ()
+    drawContents :: XMContext -> a -> Dimension -> Dimension -> Bool -> ReaderT XMenuData IO ()
     getGenProps :: a -> XMGenProps
     setGenProps :: a -> XMGenProps -> a
+
+    getCallbacks :: a -> Maybe (XMCallbacks a)
 
     canFocus :: a -> Bool
     canFocus = gp_canFocus . getGenProps
 
-    setFocus :: a -> Bool -> a
-    setFocus xmel foc = setGenProps xmel (getGenProps xmel)
-                                        { gp_focused = foc }
-
     updateGenProps :: a -> (XMGenProps -> XMGenProps) -> a
     updateGenProps xmel f = setGenProps xmel $ f (getGenProps xmel)
 
-    drawElement :: XMContext -> a -> ReaderT XMenuData IO ()
-    drawElement context el = ask >>= \xmdata -> do
+    runCB :: a -> (XMCallbacks a -> XMCallbackT a) -> IO a
+    runCB el cb = maybe (return el) ((flip runCallback el) . cb)
+                . getCallbacks $ el
+
+    runCB2 :: a -> b -> (XMCallbacks a -> XMCallback2T a b) -> IO a
+    runCB2 el el2 cb = maybe (return el)
+                             (\cbs -> runCallback2 (cb cbs) el el2)
+                     . getCallbacks $ el
+
+    drawElement :: XMContext -> a -> Bool -> ReaderT XMenuData IO ()
+    drawElement context el focd = ask >>= \xmdata -> do
         let display = g_display xmdata
         let el_gp = getGenProps el
         let (xPad, yPad) = (gp_xPad el_gp, gp_yPad el_gp)
         let (el_w, el_h) = (gp_width el_gp, gp_height el_gp)
         let (el_x, el_y) = (gp_x el_gp, gp_y el_gp)
-        let (fgColor, bgColor) = getColorsDynamic el_gp
+        let (fgColor, bgColor) = getColorsDynamic el_gp focd
         let (drawable, gc) = (c_drawable context, c_gc context)
 
         pixmap <- liftIO . createPixmap display drawable el_w el_h
@@ -51,9 +58,8 @@ class XMElementClass a where
                           fillRectangle display pixmap gc 0 0 el_w el_h)
                       (gp_background el_gp)
 
-
         drawContents (createContext pixmap gc) el
-                     (el_w - 2 * xPad) (el_h - 2 * yPad)
+                     (el_w - 2 * xPad) (el_h - 2 * yPad) focd
 
         when (gp_border el_gp) $ do
             liftIO . setForeground display gc $ fgColor

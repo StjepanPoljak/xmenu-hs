@@ -4,7 +4,7 @@ import XWindow
 
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (Event(..), getEvent, ev_state, ev_keycode, setEventType, eventName, setClientMessageEvent')
-
+import System.Process
 import Control.Concurrent (threadDelay)
 import Data.Bits ((.|.))
 import Control.Monad.Reader (runReader, liftIO)
@@ -21,7 +21,7 @@ import XElement
 import XList
 import System.Environment (getEnv)
 import System.Directory (getDirectoryContents)
-import Data.List (isPrefixOf, concat)
+import Data.List (isPrefixOf, concat, sort)
 import Data.Function ((&))
 
 import Control.Concurrent (forkIO, threadDelay)
@@ -186,14 +186,18 @@ main = do
                                          { gp_border = True
                                          , gp_overridesEsc = True
                                          }
-                               , l_onChange = \l -> do
+                               , l_cbs = (l_cbs lbl)
+                                         { cb_onChange = Just $ \l -> do
                                         (flip runReaderT) xmdata $
                                             sendXMEvent eventQueue (\xm -> do
-                                                let XMListE list' = (xem_elements xm) !! 1
-                                                let listEls = filter (isPrefixOf . l_val $ l) execList
+                                                let XMListE list' = getElement xm 1
+                                                let listEls = sort . filter (isPrefixOf . l_val $ l) $ execList
                                                 let newl' = map (\(no, str) -> listLabelE ("lblEl" ++ show no) str 0 labelProps xmglob) . zip [1..] $ listEls
-                                                let newl = XMListE $ setElements list' newl'
-                                                return $ replaceElement xm 1 newl)
+                                                let newl = resetList . setElementsFromList list' $ newl'
+                                                putStrLn $ "Got " ++ (show . length $ execList)
+                                                return $ replaceElement xm 1 (XMListE newl))
+                                        return l }
+                               --, l_onReturn = \l -> return . (return l) <=< putStrLn . show . l_val $ l
                                })
                 , (list $ \lst -> lst { li_gen = (li_gen lst)
                                                  { gp_overridesEsc = True

@@ -32,10 +32,8 @@ createListE name x y w h ih l f = XMListE
                                 . f
                                 . runReader (createList name x y w h ih l)
 
--- toList :: XMElement -> XMLabel
--- toList xem = xem_
-
 instance XMElementClass XMElement where
+
     sendKeyInput (XMLabelE label) = liftM XMLabelE
                                   . sendKeyInput label
     sendKeyInput (XMListE list) = liftM XMListE
@@ -46,6 +44,8 @@ instance XMElementClass XMElement where
 
     getGenProps (XMLabelE label) = getGenProps label
     getGenProps (XMListE list) = li_gen list
+
     setGenProps (XMListE list) = XMListE . setGenProps list
     setGenProps (XMLabelE label) = XMLabelE . setGenProps label
 
+    getCallbacks _ = Nothing
