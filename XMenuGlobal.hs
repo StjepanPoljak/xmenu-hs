@@ -72,7 +72,6 @@ data XMGenProps = XMGenProps { gp_name          :: String
                              , gp_borderWidth   :: Dimension
                              , gp_background    :: Bool
                              , gp_fontStruct    :: FontStruct
-                             , gp_focused       :: Bool
                              , gp_canFocus      :: Bool
                              , gp_overridesEsc  :: Bool
                              , gp_fgFocColor    :: Pixel
@@ -104,5 +103,5 @@ defaultGenProps name x y w h = ask >>= \(XMenuGlobal xmopts xmdata) ->
                     return $ XMGenProps name x y w h
                              (g_xPad xmopts) (g_yPad xmopts)
                              (g_fgColor xmopts) (g_bgColor xmopts) False 1
-                             False (g_fontStruct xmdata) False True False
+                             False (g_fontStruct xmdata) True False
                              (g_fgFocColor xmopts) (g_bgFocColor xmopts)

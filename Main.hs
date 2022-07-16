@@ -21,7 +21,7 @@ import XElement
 import XList
 import System.Environment (getEnv)
 import System.Directory (getDirectoryContents)
-import Data.List (isPrefixOf, concat, sort)
+import Data.List (isPrefixOf, concat, sort, nub)
 import Data.Function ((&))
 
 import Control.Concurrent (forkIO, threadDelay)
@@ -29,7 +29,7 @@ import Control.Concurrent.STM.TBQueue
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM (atomically)
 
-debug = True
+debug = False
 
 isKeyEvent :: Event -> Bool
 isKeyEvent (KeyEvent _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) = True
@@ -66,7 +66,8 @@ sendXMEvent tbq cb = ask >>= \xmdata -> liftIO $ do
     allocaXEvent $ \ev -> do
         setEventType ev clientMessage
         setClientMessageEvent' ev (g_xmenuw xmdata) xmonad_test 32 []
-        sendEvent (g_display xmdata) (g_xmenuw xmdata) False (structureNotifyMask) ev
+        sendEvent (g_display xmdata) (g_xmenuw xmdata) False
+                  (structureNotifyMask) ev
     (flip sync) False . g_display $ xmdata
 
 runXMEvents :: (XEManagerClass a, XMElementClass b) => a b
@@ -81,7 +82,7 @@ runXMEvents xman tbq = maybe (return xman)
 
 main = do
 
-    execList <- getFilesFromPathVar
+    execList <- liftM nub getFilesFromPathVar
 
     eventQueue <- newTBQueueIO 128
 
@@ -94,8 +95,10 @@ main = do
     let (XMenuGlobal _ xmdata) = xmglob
     let (XMenuData display _ _ fontstr xmenuw) = xmdata
 
-    selectInput display xmenuw
-                (exposureMask .|. keyPressMask .|. buttonPressMask .|. structureNotifyMask)
+    selectInput display xmenuw (exposureMask
+                            .|. keyPressMask
+                            .|. buttonPressMask
+                            .|. structureNotifyMask)
     mapWindow display xmenuw
     setInputFocus display xmenuw revertToParent 0
 
@@ -128,7 +131,8 @@ main = do
                                 $ Forward
 
                 when (kc == 9 && focusOverridesEsc xman) . loop
-                                                         . unfocus
+                                                         . (flip setFocus)
+                                                                 Nothing
                                                          $ xman
 
             ExposeEvent _ _ _ _ _ _ _ _ _ _ -> do
@@ -168,42 +172,63 @@ main = do
                                             { gp_border = True } })
 
     let list = createListE "listExecs" 20 90 360 100 35
-             . map (\(no, str) -> listLabelE ("listLabel" ++ show no) str 0 labelProps)
+             . map (\(no, str) -> listLabelE ("listLabel" ++ show no)
+                                             str 0 labelProps)
              . zip [1..]
-             $ [ ("E1")
-               , ("E2")
-               , ("E3")
-               , ("E4")
-               , ("E5")
-               , ("E6")
-               , ("E7")
-               ]
+             $ ([ ] :: [String])
+
+    let inputLabelEvent str xm =
+            return . replaceElement xm 1
+                   . XMListE
+                   . (flip setFocus) (Just 0)
+                   . resetList
+                   . setElementsFromList list'
+                   . map (\(no, str) -> listLabelE ("lblEl" ++ show no)
+                                        str 0 labelProps xmglob)
+                   . zip [1..]
+                   . sort
+                   . filter (isPrefixOf str)
+                   $ execList
+
+            where XMListE list' = getElement xm 1
 
     let xman = runReader' xmglob $ createManager
 
                 [ (emptyLabelE "inputLabel" 20 20 360 50 $ \lbl -> lbl
-                               { l_gen = (l_gen lbl)
-                                         { gp_border = True
-                                         , gp_overridesEsc = True
-                                         }
-                               , l_cbs = (l_cbs lbl)
-                                         { cb_onChange = Just $ \l -> do
-                                        (flip runReaderT) xmdata $
-                                            sendXMEvent eventQueue (\xm -> do
-                                                let XMListE list' = getElement xm 1
-                                                let listEls = sort . filter (isPrefixOf . l_val $ l) $ execList
-                                                let newl' = map (\(no, str) -> listLabelE ("lblEl" ++ show no) str 0 labelProps xmglob) . zip [1..] $ listEls
-                                                let newl = resetList . setElementsFromList list' $ newl'
-                                                putStrLn $ "Got " ++ (show . length $ execList)
-                                                return $ replaceElement xm 1 (XMListE newl))
-                                        return l }
-                               --, l_onReturn = \l -> return . (return l) <=< putStrLn . show . l_val $ l
-                               })
-                , (list $ \lst -> lst { li_gen = (li_gen lst)
-                                                 { gp_overridesEsc = True
-                                                 , gp_border = True }
-                                      })
+                    { l_gen = (l_gen lbl)
+                              { gp_border = True
+                              , gp_overridesEsc = True
+                              }
+                    , l_cbs = (l_cbs lbl)
+                              { cb_onChange = Just $ \l -> do
+                                        runReaderT' xmdata
+                                            $ sendXMEvent eventQueue
+                                            . inputLabelEvent
+                                            . l_val $ l
+                                        return l
+                              , cb_onKeyPress = Just $ \l (kc, str) ->
+                                        case kc of
+                                            36  -> do runProcess (l_val l)
+                                                                 []
+                                                                 Nothing
+                                                                 Nothing
+                                                                 Nothing
+                                                                 Nothing
+                                                                 Nothing
+                                                      return l
+                                            _   -> return l
+                              }
+                    })
+                , (list $ \lst -> lst
+                    { li_gen = (li_gen lst)
+                               { gp_overridesEsc = True
+                               , gp_border = True }
+                    })
                 ]
+
+    runReaderT' xmdata $ sendXMEvent eventQueue . return
+                                                . inputLabelEvent ""
+                                                $ xman
 
     loop $ xman { xem_inFocus = Nothing }
 

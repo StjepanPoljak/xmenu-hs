@@ -3,7 +3,7 @@ module XManagerClass ( XEManager(..)
                      , XEManagerClass(..)
                      , XEFocusDirection(..)
                      , direction
-                     , XMItems(..)
+                     , XMItems
                      ) where
 
 import Graphics.X11 (KeyCode)
@@ -16,7 +16,8 @@ import Data.Bool (bool)
 import Data.Maybe (isJust)
 import Control.Monad ((<=<))
 import qualified Data.Sequence as S
-import qualified Data.Foldable as F
+import qualified Data.Foldable as F (toList)
+import Data.Function ((&))
 
 type XMItems a = S.Seq a
 
@@ -65,7 +66,7 @@ class XEManagerClass f where
                           -> (KeyCode, String) -> IO (f a)
     sendKeyInputToManager xem kdata@(kc, _) = maybe (return xem)
         (\foc -> case kc of
-            9   -> bool (forwardKeyTo foc) (return . unfocus $ xem)
+            9   -> bool (forwardKeyTo foc) (return . setFocus xem $ Nothing)
                  . focusOverridesEsc $ xem
 
             _   -> forwardKeyTo foc
@@ -130,19 +131,19 @@ class XEManagerClass f where
 
               xemCount xem' = S.length . getElements $ xem'
 
-    unfocus :: (XMElementClass a) => f a -> f a
-    unfocus xem = setFocus xem Nothing
-
 instance XEManagerClass (XEManager) where
     getElements = xem_elements
     setElements xem els = xem { xem_elements = els }
     getFocus = xem_inFocus
-    setFocus xem foc = xem { xem_inFocus = foc }
+    setFocus xem foc = xem { xem_inFocus = mfilter (isJust
+                                                 . (S.!?) (xem_elements xem))
+                                                   foc }
 
 createManager :: (XMElementClass b) => [XMenuGlobal -> b]
               -> Reader XMenuGlobal (XEManager b)
-createManager xels = (\xmap -> return $ XEManager xmap Nothing)
+createManager xels = return
+                   . (flip XEManager) Nothing
                    . S.fromList
-                   . (\xmglobal -> (map (\x -> x xmglobal) xels) )
+                   . (\xmglobal -> map (xmglobal &) xels)
                  =<< ask
 

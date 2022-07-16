@@ -33,7 +33,6 @@ l_bgColor       = gp_bgColor . l_gen
 l_border        = gp_border . l_gen
 l_background    = gp_background . l_gen
 l_fontStruct    = gp_fontStruct . l_gen
-l_focused       = gp_focused . l_gen
 l_fgFocColor    = gp_fgFocColor . l_gen
 l_bgFocColor    = gp_bgFocColor . l_gen
 

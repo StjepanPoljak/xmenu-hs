@@ -25,11 +25,12 @@ import qualified Data.Sequence as S
 data XMList a = XMList { li_gen         :: XMGenProps
                        , li_cbs         :: XMCallbacks (XMList a)
                        , li_items       :: XMItems a
-                       , li_length      :: Int
                        , li_selected    :: Maybe Int
                        , li_viewY       :: Position
                        , li_itemHeight  :: Dimension
                        }
+
+li_length = S.length . li_items
 
 createList :: (XMElementClass a) => String -> Position -> Position
                                  -> Dimension -> Dimension -> Dimension
@@ -41,22 +42,14 @@ createList name x y w h ih lst = ((uncurry . liftM2 $ (,))
                                              . (flip setElements)
                                                (S.fromList
                                                  . map (xmg &) $ lst)
-                                        $ XMList gp defaultCallbacks S.empty 0
+                                        $ XMList gp defaultCallbacks S.empty
                                                  Nothing 0 ih
-
--- class (XEManagerClass l) => XMListClass l where
---     getSelected :: (XMElementClass a) => l a -> Maybe Int
---     getSelected = XManagerClass.getFocus
---     setSelected :: (XMElementClass a) => l a -> Maybe Int -> l a
---     setSelected = XManagerClass.setFocus
 
 instance XEManagerClass XMList where
     getElements = li_items
     getFocus = li_selected
     setFocus list foc = list { li_selected = foc }
-    setElements list els = processList $ list { li_items = els
-                                              , li_length = S.length els
-                                              }
+    setElements list els = processList $ list { li_items = els }
 
 instance (XMElementClass a) => XMElementClass (XMList a) where
     drawContents = drawList
@@ -109,22 +102,21 @@ processList list = list { li_items = fst . S.foldlWithIndex (\(lst, lastY) _ ite
 drawList :: (XMElementClass a) => XMContext -> XMList a -> Dimension
                                -> Dimension -> Bool
                                -> RT.ReaderT XMenuData IO ()
-drawList cntxt list w h _ = mapM_ (\(i, e) -> drawElement cntxt e (isJust . mfilter (i==) . getFocus $ list))
-                          . map (\(i, e) -> (i, updateGenProps e
-                                  (\gp -> gp {gp_y = gp_y gp - li_viewY list})))
-                          . F.toList
-                          . S.takeWhileL ((\gp -> -- gp_y gp
-                                          --  + (fromIntegral . gp_height $ gp)
-                                         --   > li_viewY list
-                                         --  &&
-                                            gp_y gp
-                                            < li_viewY list + (fromIntegral h)
-                                          ) . getGenProps . snd)
-                          . S.dropWhileL ((\gp -> gp_y gp
-                                             + (fromIntegral . gp_height $ gp)
-                                            <= li_viewY list) . getGenProps . snd)
-                          -- . (\x -> S.slice 0 (min 10 (length x)) x)
-                          . S.mapWithIndex ((,)) . li_items $ list
+drawList context list w h _ =
+        mapM_ (\(i, e) -> drawElement context e
+                        . isJust
+                        . mfilter (i==)
+                        . getFocus $ list)
+      . map (\(i, e) -> (i, updateGenProps e
+                      $ \gp -> gp { gp_y = gp_y gp - li_viewY list } ))
+      . F.toList
+      . S.takeWhileL ((\gp -> gp_y gp < li_viewY list + fromIntegral h)
+                      . getGenProps . snd)
+      . S.dropWhileL ((\gp -> gp_y gp + (fromIntegral . gp_height $ gp)
+                           <= li_viewY list)
+                      . getGenProps . snd)
+      . S.mapWithIndex (,)
+      . li_items $ list
 
 isFocusOutside :: (XMElementClass a) => XMList a -> Bool
 isFocusOutside list = isJust

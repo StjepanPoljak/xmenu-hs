@@ -13,7 +13,8 @@ import Data.Bool (bool)
 
 class XMElementClass a where
     sendKeyInput :: a -> (KeyCode, String) -> IO a
-    drawContents :: XMContext -> a -> Dimension -> Dimension -> Bool -> ReaderT XMenuData IO ()
+    drawContents :: XMContext -> a -> Dimension -> Dimension -> Bool
+                 -> ReaderT XMenuData IO ()
     getGenProps :: a -> XMGenProps
     setGenProps :: a -> XMGenProps -> a
 
