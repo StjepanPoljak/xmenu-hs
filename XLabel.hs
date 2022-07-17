@@ -15,6 +15,7 @@ import Data.Either (fromRight, either)
 import XContext
 import XElementClass
 import Data.Map (fromList, (!?))
+import Data.List (singleton)
 
 data XMLabel = XMLabel { l_gen          :: XMGenProps
                        , l_cbs          :: XMCallbacks XMLabel
@@ -53,7 +54,7 @@ specialChars = [ ("space",      " ")
 getKeyStr str = maybe str id $ fromList specialChars !? str
 
 allowedChars = (fst $ unzip specialChars) ++ alphanum
-    where alphanum = map (\ch -> [ch]) $ ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']
+    where alphanum = map singleton $ ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']
 
 instance XMElementClass XMLabel where
     sendKeyInput label (kc, str) =
@@ -167,8 +168,8 @@ drawLabel context label w h focd = RT.ask >>= \xmdata -> do
     let (fgColor, bgColor) = getColorsDynamic (l_gen label) focd
     let (drawable, gc) = (c_drawable context, c_gc context)
 
-    when (either (\_ -> False)
-                 (\dv -> null dv && not (null . l_val $ label))
+    when (either (const False)
+                 ((not (null . l_val $ label) &&) . null)
                . l_dispVal $ label) $
         return =<< drawLabel context
                              (label { l_dispVal = getDispVal label }) w h focd
@@ -177,9 +178,9 @@ drawLabel context label w h focd = RT.ask >>= \xmdata -> do
         setForeground display gc fgColor
         setBackground display gc bgColor
         setFont display gc (fontFromFontStruct $ l_fontStruct label)
-        drawImageString display drawable gc 0 (lbly)
-                        (either id id (l_dispVal label))
+        drawImageString display drawable gc 0 (lbly) . either id id
+                                                     $ (l_dispVal label)
 
     where lbly = fromIntegral $ (h + fromIntegral asc) `div` 2
           (_, asc, _, _) = textExtents (l_fontStruct label)
-                                                       (l_val label)
+                                       (l_val label)

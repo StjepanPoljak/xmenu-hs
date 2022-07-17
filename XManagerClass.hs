@@ -41,7 +41,7 @@ class XEManagerClass f where
     setElementsFromList xem list = setElements xem (S.fromList list)
 
     getElement :: (XMElementClass a) => f a -> Int -> a
-    getElement xem no = (getElements xem) `S.index` no
+    getElement xem no = getElements xem `S.index` no
 
     getElementByName :: (XMElementClass a) => f a -> String -> Maybe Int
     getElementByName xem name = S.findIndexL ((==name)
@@ -64,14 +64,16 @@ class XEManagerClass f where
 
     sendKeyInputToManager :: (XMElementClass a) => f a
                           -> (KeyCode, String) -> IO (f a)
-    sendKeyInputToManager xem kdata@(kc, _) = maybe (return xem)
-        (\foc -> case kc of
-            9   -> bool (forwardKeyTo foc) (return . setFocus xem $ Nothing)
-                 . focusOverridesEsc $ xem
+    sendKeyInputToManager xem kdata@(kc, _)
+        | kc == 9   = maybe (return xem)
+                            (\foc -> bool (forwardKeyTo foc)
+                                          (return $ setFocus xem Nothing)
+                                   $ focusOverridesEsc xem)
+                    $ getFocus xem
 
-            _   -> forwardKeyTo foc
+        | kc == 23  = return $ changeFocus xem Forward
 
-        ) . getFocus $ xem
+        | otherwise = maybe (return xem) forwardKeyTo $ getFocus xem
 
         where forwardFuncTo foc fn = return
                                    . replaceElement xem foc
@@ -85,15 +87,13 @@ class XEManagerClass f where
                                                          . mfilter (i==)
                                                          . getFocus $ xem))
                     . F.toList
-                    . S.mapWithIndex ((,))
+                    . S.mapWithIndex (,)
                     . getElements $ xem
 
     focusOverridesEsc :: (XMElementClass a) => f a -> Bool
     focusOverridesEsc xem = maybe False
-                                  (\foc' -> gp_overridesEsc
-                                          $ getGenProps
-                                          . getElement xem
-                                          $ foc')
+                                  (gp_overridesEsc . getGenProps
+                                                   . getElement xem)
                                   (getFocus xem)
 
     changeFocus :: (XMElementClass a) => f a -> XEFocusDirection -> f a
@@ -144,6 +144,7 @@ createManager :: (XMElementClass b) => [XMenuGlobal -> b]
 createManager xels = return
                    . (flip XEManager) Nothing
                    . S.fromList
-                   . (\xmglobal -> map (xmglobal &) xels)
+                   . (flip map) xels
+                   . (&)
                  =<< ask
 
