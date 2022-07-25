@@ -10,6 +10,7 @@ import Graphics.X11 ( setForeground, setBackground, fillRectangle
                     , drawRectangle, Pixmap, Position, Dimension
                     , createPixmap, defaultScreenOfDisplay
                     , defaultDepthOfScreen, freePixmap, copyArea
+                    , xK_Up, xK_Down
                     )
 import qualified Control.Monad.Trans.Reader as RT (ReaderT, ask
                                                   , runReaderT, reader
@@ -21,6 +22,7 @@ import Data.Function ((&))
 import Data.Maybe (isJust)
 import qualified Data.Foldable as F (toList)
 import qualified Data.Sequence as S
+import qualified Data.Map as M (fromList, (!))
 
 data XMList a = XMList { li_gen         :: XMGenProps
                        , li_cbs         :: XMCallbacks (XMList a)
@@ -59,21 +61,21 @@ instance (XMElementClass a) => XMElementClass (XMList a) where
 
     getCallbacks = Just . li_cbs
 
-    sendKeyInput list (kc, str) = (\lst -> runCB2 lst (kc, str) cb_onKeyPress)
+    sendKeyInput list ks = (\lst -> runCB2 lst ks cb_onKeyPress)
         =<< bool (return list)
                  (maybe (return . changeFocus list $ Forward)
                         (\foc -> return
-                               . bool ((flip keyScrollToFocus) kcToDir
-                                      . changeFocus list $ kcToDir)
+                               . bool ((flip keyScrollToFocus) ksToDir
+                                      . changeFocus list $ ksToDir)
                                       list
                                . direction (foc + 1 == li_length list)
                                            (foc == 0)
-                               $ kcToDir) $ getFocus list)
-                 (kc == 111 || kc == 116)
+                               $ ksToDir) $ getFocus list)
+                 (ks == xK_Up || ks == xK_Down)
 
-        where kcToDir = case kc of
-                    111 -> Backward
-                    116 -> Forward
+        where ksToDir = M.fromList [ (xK_Up,     Backward)
+                                   , (xK_Down,   Forward)
+                                   ] M.! ks
 
               focIsLast = isJust . mfilter (-1 + li_length list ==)
                         . getFocus $ list
@@ -82,20 +84,22 @@ instance (XMElementClass a) => XMElementClass (XMList a) where
                          . getFocus $ list
 
 processList :: (XMElementClass a) => XMList a -> XMList a
-processList list = list { li_items = fst . S.foldlWithIndex (\(lst, lastY) _ item ->
-    let h' = fromIntegral . gp_height . getGenProps $ item
-        h = bool h' (li_itemHeight list) (h' == 0)
-        xP = fromIntegral . gp_xPad $ lgp
-    in (lst S.>< S.fromList [updateGenProps item $ \gp ->
+processList list = list { li_items = fst
+                                   . S.foldlWithIndex
+    (\(lst, lastY) _ item ->
+        let h' = fromIntegral . gp_height . getGenProps $ item
+            h = bool h' (li_itemHeight list) (h' == 0)
+            xP = fromIntegral . gp_xPad $ lgp
+        in (lst S.>< S.fromList [updateGenProps item $ \gp ->
 
-                         gp { gp_x = 0
-                            , gp_y = lastY
-                            , gp_width = gp_width lgp - 2 * xP
-                            , gp_height = h
-                            , gp_overridesEsc = False
+                             gp { gp_x = 0
+                                , gp_y = lastY
+                                , gp_width = gp_width lgp - 2 * xP
+                                , gp_height = h
+                                , gp_overridesEsc = False
                             }
-                    ]
-    , lastY + fromIntegral h
+                        ]
+        , lastY + fromIntegral h
     )) (S.empty, fromIntegral (gp_yPad lgp)) $ li_items list }
     where lgp = li_gen list
 

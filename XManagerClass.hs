@@ -6,7 +6,7 @@ module XManagerClass ( XEManager(..)
                      , XMItems
                      ) where
 
-import Graphics.X11 (KeyCode)
+import Graphics.X11 (KeyCode, KeySym, xK_Escape, xK_Tab)
 import XElementClass as XE
 import XContext
 import XMenuGlobal
@@ -63,15 +63,16 @@ class XEManagerClass f where
                              . getElements $ xem
 
     sendKeyInputToManager :: (XMElementClass a) => f a
-                          -> (KeyCode, String) -> IO (f a)
-    sendKeyInputToManager xem kdata@(kc, _)
-        | kc == 9   = maybe (return xem)
-                            (\foc -> bool (forwardKeyTo foc)
-                                          (return $ setFocus xem Nothing)
-                                   $ focusOverridesEsc xem)
-                    $ getFocus xem
+                          -> KeySym -> IO (f a)
+    sendKeyInputToManager xem ks
+        | ks == xK_Escape   = maybe (return xem)
+                                    (\foc -> bool (forwardKeyTo foc)
+                                                  (return . setFocus xem
+                                                          $ Nothing)
+                                           $ focusOverridesEsc xem)
+                            $ getFocus xem
 
-        | kc == 23  = return $ changeFocus xem Forward
+        | ks == xK_Tab      = return $ changeFocus xem Forward
 
         | otherwise = maybe (return xem) forwardKeyTo $ getFocus xem
 
@@ -79,7 +80,7 @@ class XEManagerClass f where
                                    . replaceElement xem foc
                                  <=< fn
                                    . getElement xem $ foc
-              forwardKeyTo = (flip forwardFuncTo) ((flip sendKeyInput) kdata)
+              forwardKeyTo = (flip forwardFuncTo) ((flip sendKeyInput) ks)
 
     drawAll :: (XMElementClass a) => f a -> XMContext
             -> ReaderT XMenuData IO ()

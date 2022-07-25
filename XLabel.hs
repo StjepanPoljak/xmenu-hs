@@ -6,16 +6,21 @@ module XLabel
     ) where
 
 import Graphics.X11
-import XMenuGlobal
-import qualified Control.Monad.Trans.Reader as RT (runReaderT, ReaderT, ask)
+
 import Control.Monad.Reader (runReader, Reader, ask, liftIO)
 import Control.Monad (when, unless, liftM, (<=<))
+import qualified Control.Monad.Trans.Reader as RT (runReaderT, ReaderT, ask)
+
 import Data.Bool (bool)
 import Data.Either (fromRight, either)
+import Data.List (singleton)
+import Data.Function ((&))
+
+import qualified Data.Map as M (fromList, (!?))
+
 import XContext
 import XElementClass
-import Data.Map (fromList, (!?))
-import Data.List (singleton)
+import XMenuGlobal
 
 data XMLabel = XMLabel { l_gen          :: XMGenProps
                        , l_cbs          :: XMCallbacks XMLabel
@@ -37,41 +42,43 @@ l_fontStruct    = gp_fontStruct . l_gen
 l_fgFocColor    = gp_fgFocColor . l_gen
 l_bgFocColor    = gp_bgFocColor . l_gen
 
-specialChars = [ ("space",      " ")
-               , ("comma",      ",")
-               , ("period",     ".")
-               , ("underscore", "_")
-               , ("minus",      "-")
-               , ("colon",      ":")
-               , ("semicolon",  ";")
-               , ("quotedbl",   "\"")
-               , ("ampersand",  "&")
-               , ("exclam",     "!")
-               , ("parenleft",  "(")
-               , ("parenright", ")")
+specialChars = [ (xK_space,         ' ')
+               , (xK_comma,         ',')
+               , (xK_period,        '.')
+               , (xK_underscore,    '_')
+               , (xK_minus,         '-')
+               , (xK_colon,         ':')
+               , (xK_semicolon,     ';')
+               , (xK_quotedbl,      '\"')
+               , (xK_ampersand,     '&')
+               , (xK_exclam,        '!')
+               , (xK_parenleft,     '(')
+               , (xK_parenright,    ')')
+               , (xK_slash,         '/')
                ]
+specialCharsMap = M.fromList specialChars
 
-getKeyStr str = maybe str id $ fromList specialChars !? str
+getKeyStr :: KeySym -> Char
+getKeyStr ks = maybe (head . keysymToString $ ks) id
+             . (M.!?) specialCharsMap $ ks
 
 allowedChars = (fst $ unzip specialChars) ++ alphanum
-    where alphanum = map singleton $ ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']
+    where alphanum = map (stringToKeysym . singleton)
+                   $ ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']
 
 instance XMElementClass XMLabel where
-    sendKeyInput label (kc, str) =
+    sendKeyInput label ks =
+        (\lbl -> runCB2 lbl ks cb_onKeyPress)
+             <=< either return ((flip runCB) cb_onChange)
+               $ if ks == xK_BackSpace
+                 then bool (Right $ removeCharFromLabel label)
+                           (Left label)
+                           (null $ l_val label)
 
-        (\lbl -> runCB2 lbl (kc, str) cb_onKeyPress) =<< case str of
-
-            []  -> return label
-
-            _   -> either return ((flip runCB) cb_onChange)
-                 . bool (bool (Left label)
-                              (Right . appendCharToLabel label
-                                     . head . getKeyStr $ str)
-                              (str `elem` allowedChars))
-                        (case l_val label of
-                              []  -> Left label
-                              _   -> Right . removeCharFromLabel $ label)
-                 $ kc == 22
+                 else bool (Left label)
+                           (Right . appendCharToLabel label
+                                  . getKeyStr $ ks)
+                           (ks `elem` allowedChars)
 
     getGenProps = l_gen
     drawContents = drawLabel

@@ -3,7 +3,7 @@ module XElementClass ( XMElementClass(..)
 
 import XContext
 import XMenuGlobal
-import Graphics.X11 (KeyCode, copyArea, createPixmap, freePixmap
+import Graphics.X11 (KeySym, copyArea, createPixmap, freePixmap
                     , setForeground, defaultScreenOfDisplay, Dimension
                     , defaultDepthOfScreen, fillRectangle)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT, ask)
@@ -12,7 +12,7 @@ import Control.Monad (when)
 import Data.Bool (bool)
 
 class XMElementClass a where
-    sendKeyInput :: a -> (KeyCode, String) -> IO a
+    sendKeyInput :: a -> KeySym -> IO a
     drawContents :: XMContext -> a -> Dimension -> Dimension -> Bool
                  -> ReaderT XMenuData IO ()
     getGenProps :: a -> XMGenProps

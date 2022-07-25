@@ -1,13 +1,14 @@
 module Main where
 
-import Graphics.X11.Xlib ( freeFont, exposureMask
-                         , revertToParent
-                         , mapWindow, setInputFocus, structureNotifyMask
-                         , buttonPressMask, keyPressMask, selectInput)
+import Graphics.X11.Xlib ( freeFont, exposureMask , revertToParent, revertToPointerRoot
+                         , focusChangeMask , mapWindow, setInputFocus
+                         , structureNotifyMask , buttonPressMask, keyPressMask
+                         , selectInput, xK_Return)
 
 import Data.Bits ((.|.))
 import Data.Maybe (maybe)
 import Data.List (isPrefixOf, concat, sort, nub)
+import Data.Bool (bool)
 
 import Control.Concurrent (forkIO)
 
@@ -62,10 +63,11 @@ main = do
     selectInput display xmenuw (exposureMask
                             .|. keyPressMask
                             .|. buttonPressMask
+                            .|. focusChangeMask
                             .|. structureNotifyMask)
 
     mapWindow display xmenuw
-    setInputFocus display xmenuw revertToParent 0
+    setInputFocus display xmenuw revertToPointerRoot 0
 
     let labelProps = (\lbl -> lbl { l_gen = (l_gen lbl)
                                             { gp_border = True } })
@@ -92,9 +94,13 @@ main = do
 
             where XMListE list' = getElement xm 1
 
-    let returnEvent str xm = do
-            (const $ return Nothing) <=< forkIO $
-                void $ createProcess (proc str [])
+    let returnEvent str xm = let strlst = words str
+                                 comm = bool (head strlst) "" (null strlst)
+                                 args = drop (length strlst - 1) strlst
+                             in bool ((const $ return Nothing) <=< forkIO $
+                                        void $ createProcess (proc comm args))
+                                     (return $ Just xm)
+                                     (null comm)
 
     let xman = runReader' xmglob $ createManager
 
@@ -112,17 +118,15 @@ main = do
                                             . l_val $ l
                                         return l
 
-                              , cb_onKeyPress = Just $ \l (kc, str) ->
+                              , cb_onKeyPress = Just $ \l ks ->
 
-                                    (const $ return l) =<< case str of
-
-                                        "Return"    -> void
-                                                     . runReaderT' xmdata
-                                                     . sendXMEvent eventQueue
-                                                     . returnEvent
-                                                     . l_val $ l
-
-                                        _           -> return ()
+                                    bool (return ())
+                                         (void . runReaderT' xmdata
+                                               . sendXMEvent eventQueue
+                                               . returnEvent
+                                               . l_val $ l)
+                                         (ks == xK_Return)
+                                >>= (const $ return l)
                               }
                     })
                 , (list $ \lst -> lst

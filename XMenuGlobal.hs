@@ -17,7 +17,7 @@ module XMenuGlobal
 
 import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
                     , Screen, ScreenNumber, Display, Window
-                    , Position, KeyCode
+                    , Position, KeySym
                     )
 import Data.Bool (bool)
 import Control.Monad.Reader (ask, Reader)
@@ -90,7 +90,7 @@ runCallback2 (Just act) el el2 = act el el2
 runCallback2 Nothing el _ = return el
 
 data XMCallbacks a = XMCallbacks
-        { cb_onKeyPress    :: XMCallback2T a (KeyCode, String)
+        { cb_onKeyPress    :: XMCallback2T a KeySym
         , cb_onChange      :: XMCallbackT a
         }
 

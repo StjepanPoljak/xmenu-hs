@@ -4,9 +4,11 @@ import Graphics.X11
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getEvent, setEventType, Event(..))
 
+import Data.Bits ((.&.), (.|.))
 import Control.Monad (liftM, unless, when)
 import Control.Monad.Reader (runReader, liftIO)
 import Control.Monad.Trans.Reader (ask, ReaderT(..))
+
 import XMenuGlobal
 import XManagerClass
 import XElementClass
@@ -23,16 +25,15 @@ createXMenu = ask >>= \xmopts -> liftIO $ do
     let scrnum = screenNumberOfScreen screen
     rootw <- rootWindow display scrnum
 
-    let xmpos = getXmenuPosition screen (g_width xmopts) (g_height xmopts)
+    let (x, y) = getXmenuPosition screen (g_width xmopts) (g_height xmopts)
 
     window <- allocaSetWindowAttributes $
         \attributes -> do
             set_override_redirect attributes True
-            createWindow display rootw (fst xmpos) (snd xmpos)
-                           (g_width xmopts) (g_height xmopts) 1
-                           (defaultDepthOfScreen screen)
-                           inputOutput (defaultVisualOfScreen screen)
-                           (cWOverrideRedirect) attributes
+            createWindow display rootw x y (g_width xmopts) (g_height xmopts)
+                         1 (defaultDepthOfScreen screen) inputOutput
+                         (defaultVisualOfScreen screen) (cWOverrideRedirect)
+                         attributes
 
     fontstr <- loadQueryFont display (g_font xmopts)
 
@@ -77,20 +78,22 @@ mainLoop evq xmg@(XMenuGlobal xmopts xmdata) xman = do
 
         KeyEvent _ _ _ _ _ _ _ _ _ _ _ _ st kc _ -> do
 
-            unless (kc == 9) $ do
+            ksym <- keycodeToKeysym display kc
+                  . fromIntegral $ st .&. (shiftMask .|. controlMask)
 
-                keyStr  <- liftM keysymToString
-                         $ keycodeToKeysym display kc
-                         . fromIntegral $ st
+            unless (ksym == xK_Escape) $ do
 
-                when (debug) . putStrLn $ show (kc, keyStr, st)
+                -- let keyStr = keysymToString ksym
 
-                mainLoop evq xmg =<< sendKeyInputToManager xman (kc, keyStr)
+                when (debug) . putStrLn $ show (kc, keysymToString ksym, st)
 
-            when (kc == 9 && focusOverridesEsc xman) . mainLoop evq xmg
-                                                     . (flip setFocus)
-                                                             Nothing
-                                                     $ xman
+                mainLoop evq xmg =<< sendKeyInputToManager xman ksym
+
+            when (ksym == xK_Escape
+              && focusOverridesEsc xman)
+               . mainLoop evq xmg
+               . (flip setFocus) Nothing
+               $ xman
 
         ExposeEvent _ _ _ _ _ _ _ _ _ _ -> do
 
@@ -121,6 +124,11 @@ mainLoop evq xmg@(XMenuGlobal xmopts xmdata) xman = do
                 sendEvent display xmenuw False exposureMask ev
 
             maybe (return ()) (mainLoop evq xmg) =<< runXMEvents xman evq
+
+        AnyEvent 10 _ _ _ _ -> do
+
+            setInputFocus display xmenuw revertToPointerRoot 0
+            mainLoop evq xmg xman
 
         _   -> do
 
