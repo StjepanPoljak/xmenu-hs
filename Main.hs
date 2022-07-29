@@ -1,12 +1,11 @@
 module Main where
 
-import Graphics.X11.Xlib ( freeFont, exposureMask , revertToParent, revertToPointerRoot
+import Graphics.X11.Xlib ( freeFont, exposureMask, revertToPointerRoot
                          , focusChangeMask , mapWindow, setInputFocus
                          , structureNotifyMask , buttonPressMask, keyPressMask
                          , selectInput, xK_Return)
 
 import Data.Bits ((.|.))
-import Data.Maybe (maybe)
 import Data.List (isPrefixOf, concat, sort, nub)
 import Data.Bool (bool)
 
@@ -45,6 +44,28 @@ getFilesFromPathVar = foldM (\acc x ->
                                      $ getDirectoryContents x)
                             [] =<< getPathVar
 
+getExecStr xm = case getFocus list of
+
+            Nothing     -> l_val label
+            Just foc    -> let focel = getElement list foc
+                               XMLabelE lbllst = focel
+                               inputVal = l_val label
+                               listVal = l_val lbllst
+                           in bool listVal (l_val label)
+                                   (length (l_val label) > length listVal)
+    where Just (XMLabelE label) = getElementByName xm "inputLabel"
+          Just (XMListE list) = getElementByName xm "listExecs"
+
+returnEvent xm = let strlst = words . getExecStr $ xm
+                     comm = bool (head strlst) "" (null strlst)
+                     args = bool (drop (length strlst - 1) strlst)
+                                 []
+                                 (length strlst <= 1)
+                 in bool ((const $ return Nothing) <=< forkIO $
+                            void $ createProcess (proc comm args))
+                         (return $ Just xm)
+                         (null comm)
+
 main = do
 
     execList <- liftM nub getFilesFromPathVar
@@ -82,9 +103,8 @@ main = do
             return . Just
                    . replaceElement xm 1
                    . XMListE
-                   . (flip setFocus) (Just 0)
-                   . resetList
-                   . setElementsFromList list'
+                   . (flip resetList) (Just 0)
+                   . setElementsFromList list
                    . map (\(no, str) -> listLabelE ("lblEl" ++ show no)
                                         str 0 labelProps xmglob)
                    . zip [1..]
@@ -92,15 +112,7 @@ main = do
                    . filter (isPrefixOf str)
                    $ execList
 
-            where XMListE list' = getElement xm 1
-
-    let returnEvent str xm = let strlst = words str
-                                 comm = bool (head strlst) "" (null strlst)
-                                 args = drop (length strlst - 1) strlst
-                             in bool ((const $ return Nothing) <=< forkIO $
-                                        void $ createProcess (proc comm args))
-                                     (return $ Just xm)
-                                     (null comm)
+            where Just (XMListE list) = getElementByName xm "listExecs"
 
     let xman = runReader' xmglob $ createManager
 
@@ -123,8 +135,7 @@ main = do
                                     bool (return ())
                                          (void . runReaderT' xmdata
                                                . sendXMEvent eventQueue
-                                               . returnEvent
-                                               . l_val $ l)
+                                               $ returnEvent)
                                          (ks == xK_Return)
                                 >>= (const $ return l)
                               }

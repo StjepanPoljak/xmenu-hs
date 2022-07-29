@@ -7,25 +7,35 @@ module XManagerClass ( XEManager(..)
                      ) where
 
 import Graphics.X11 (KeyCode, KeySym, xK_Escape, xK_Tab)
+
+import Data.Bool (bool)
+import Data.Maybe (isJust)
+import qualified Data.Sequence as S ( Seq, fromList, mapWithIndex, null, (!?)
+                                    , index, update, findIndexL, length
+                                    )
+import qualified Data.Foldable as F (toList)
+import qualified Data.Map as M (Map, fromList, (!?))
+import Data.Function ((&))
+
+import Control.Monad ((<=<), liftM)
+import Control.Monad.Trans.Reader (ReaderT)
+import Control.Monad.Reader (Reader, ask, liftIO, mfilter)
+
 import XElementClass as XE
 import XContext
 import XMenuGlobal
-import Control.Monad.Trans.Reader (ReaderT)
-import Control.Monad.Reader (Reader, ask, liftIO, mfilter)
-import Data.Bool (bool)
-import Data.Maybe (isJust)
-import Control.Monad ((<=<))
-import qualified Data.Sequence as S
-import qualified Data.Foldable as F (toList)
-import Data.Function ((&))
 
 type XMItems a = S.Seq a
+type XMMap a = M.Map String Int
 
 data XEManager a = XEManager { xem_elements         :: XMItems a
                              , xem_inFocus          :: Maybe Int
+                             , xem_map              :: Maybe (XMMap a)
                              }
 
-data XEFocusDirection = Forward | Backward deriving (Eq)
+data XEFocusDirection = Forward
+                      | Backward
+                      deriving (Eq)
 
 direction :: a -> a -> XEFocusDirection -> a
 direction x _ Forward = x
@@ -37,25 +47,53 @@ class XEManagerClass f where
     setFocus :: (XMElementClass a) => f a -> Maybe Int -> f a
     setElements :: (XMElementClass a) => f a -> XMItems a -> f a
 
+    getMap :: (XMElementClass a) => f a -> Maybe (XMMap a)
+    setMap :: (XMElementClass a) => f a -> Maybe (XMMap a) -> f a
+
+    generateMap :: (XMElementClass a) => f a -> f a
+    generateMap xem = setMap xem
+                    . Just
+                    . M.fromList
+                    . F.toList
+                    . S.mapWithIndex (\i el -> (flip (,)) i
+                                             . gp_name
+                                             . getGenProps $ el)
+                    . getElements $ xem
+
+    isEmpty :: (XMElementClass a) => f a -> Bool
+    isEmpty = S.null . getElements
+
+    showElements :: (XMElementClass a) => f a -> [(Int, String)]
+    showElements = F.toList
+                 . S.mapWithIndex (\i el -> (i, gp_name (getGenProps el)))
+                 . getElements
+
     setElementsFromList :: (XMElementClass a) => f a -> [a] -> f a
     setElementsFromList xem list = setElements xem (S.fromList list)
 
     getElement :: (XMElementClass a) => f a -> Int -> a
     getElement xem no = getElements xem `S.index` no
 
-    getElementByName :: (XMElementClass a) => f a -> String -> Maybe Int
-    getElementByName xem name = S.findIndexL ((==name)
-                                        . gp_name
-                                        . getGenProps)
-                              . getElements $ xem
+    getElementNoByName :: (XMElementClass a) => f a -> String -> Maybe Int
+    getElementNoByName xem name = case getMap xem of
+
+            Nothing     -> S.findIndexL ((==name)
+                                       . gp_name
+                                       . getGenProps)
+                         . getElements $ xem
+
+            Just map    -> map M.!? name
+
+    getElementByName :: (XMElementClass a) => f a -> String -> Maybe a
+    getElementByName xem str = liftM (getElement xem)
+                             $ getElementNoByName xem str
 
     modifyElementByName :: (XMElementClass a) => f a -> String
                                               -> (a -> a) -> f a
-    modifyElementByName xem name f = maybe xem (\no ->
-                                        replaceElement xem no
-                                      . f
-                                      . getElement xem
-                                      $ no) $ getElementByName xem name
+    modifyElementByName xem name f = maybe xem (\no -> replaceElement xem no
+                                                     . f
+                                                     $ getElement xem no)
+                                   $ getElementNoByName xem name
 
     replaceElement :: (XMElementClass a) => f a -> Int -> a -> f a
     replaceElement xem no el = setElements xem
@@ -139,11 +177,13 @@ instance XEManagerClass (XEManager) where
     setFocus xem foc = xem { xem_inFocus = mfilter (isJust
                                                  . (S.!?) (xem_elements xem))
                                                    foc }
+    getMap = xem_map
+    setMap xem map = xem { xem_map = map }
 
 createManager :: (XMElementClass b) => [XMenuGlobal -> b]
               -> Reader XMenuGlobal (XEManager b)
 createManager xels = return
-                   . (flip XEManager) Nothing
+                   . (\els -> XEManager els Nothing Nothing)
                    . S.fromList
                    . (flip map) xels
                    . (&)

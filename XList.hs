@@ -52,6 +52,8 @@ instance XEManagerClass XMList where
     getFocus = li_selected
     setFocus list foc = list { li_selected = foc }
     setElements list els = processList $ list { li_items = els }
+    getMap _ = Nothing
+    setMap xem _ = xem
 
 instance (XMElementClass a) => XMElementClass (XMList a) where
     drawContents = drawList
@@ -151,8 +153,8 @@ clearList :: (XMElementClass a) => XMList a -> XMList a
 clearList = (flip setElements) S.empty
           . (flip setFocus) Nothing
 
-resetList :: (XMElementClass a) => XMList a -> XMList a
-resetList = (\lst -> lst { li_viewY = 0 }) . (flip setFocus) Nothing
+resetList :: (XMElementClass a) => XMList a -> Maybe Int -> XMList a
+resetList lst foc = (\lst' -> lst' { li_viewY = 0 }) . setFocus lst . bool foc Nothing . isEmpty $ lst
 
 insertElement :: (XMElementClass a) => XMList a -> a -> Int -> XMList a
 insertElement list el pos = processList
