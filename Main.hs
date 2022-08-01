@@ -1,9 +1,6 @@
 module Main where
 
-import Graphics.X11.Xlib ( freeFont, exposureMask, revertToPointerRoot
-                         , focusChangeMask , mapWindow, setInputFocus
-                         , structureNotifyMask , buttonPressMask, keyPressMask
-                         , selectInput, xK_Return)
+import Graphics.X11 (xK_Return)
 
 import Data.Bits ((.|.))
 import Data.List (isPrefixOf, concat, sort, nub)
@@ -29,21 +26,23 @@ import XElement
 import XList
 import XWindow
 
-debug = True
-
+splitPathVar :: String -> [String]
 splitPathVar str = case dropWhile (== ':') str of
                         "" -> []
                         s' -> w : splitPathVar s''
                               where (w, s'') = break (==':') s'
 
+getPathVar :: IO [String]
 getPathVar = liftM splitPathVar $ getEnv "PATH"
 
+getFilesFromPathVar :: IO [String]
 getFilesFromPathVar = foldM (\acc x ->
                                 liftM (filter (not . (flip elem) [".", ".."])
                                      . concat . (:[acc]))
                                      $ getDirectoryContents x)
                             [] =<< getPathVar
 
+getExecStr :: (XEManagerClass f) => f XMElement -> String
 getExecStr xm = case getFocus list of
 
             Nothing     -> l_val label
@@ -56,6 +55,7 @@ getExecStr xm = case getFocus list of
     where Just (XMLabelE label) = getElementByName xm "inputLabel"
           Just (XMListE list) = getElementByName xm "listExecs"
 
+returnEvent :: (XEManagerClass f) => XMEvent f XMElement
 returnEvent xm = let strlst = words . getExecStr $ xm
                      comm = bool (head strlst) "" (null strlst)
                      args = bool (drop (length strlst - 1) strlst)
@@ -66,11 +66,39 @@ returnEvent xm = let strlst = words . getExecStr $ xm
                          (return $ Just xm)
                          (null comm)
 
+labelProps :: XMLabel -> XMLabel
+labelProps = (\lbl -> lbl { l_gen = (l_gen lbl)
+                                    { gp_border = True } })
+
+list = createListE "listExecs" 20 90 360 100 35
+     . map (\(no, str) -> listLabelE ("listLabel" ++ show no)
+                                     str 0 labelProps)
+     . zip [1..]
+     $ ([ ] :: [String])
+
+inputLabelEvent :: (XEManagerClass f) => XMenuGlobal -> [String] -> String
+                -> XMEvent f XMElement
+inputLabelEvent xmglob execList str xm =
+
+    return . Just
+           . replaceElement xm 1
+           . XMListE
+           . (flip resetList) (Just 0)
+           . setElementsFromList list
+           . map (\(no, str) -> listLabelE ("lblEl" ++ show no)
+                                str 0 labelProps xmglob)
+           . zip [1..]
+           . sort
+           . filter (isPrefixOf str)
+           $ execList
+
+    where Just (XMListE list) = getElementByName xm "listExecs"
+
 main = do
 
     execList <- liftM nub getFilesFromPathVar
 
-    eventQueue <- createEventQueue
+    evq <- createEventQueue
 
     let xmopts = XMenuOpts 400 200 0x244758 0x12222a
                            (createFont "Terminus" 16)
@@ -80,39 +108,6 @@ main = do
 
     let (XMenuGlobal _ xmdata) = xmglob
     let (XMenuData display _ _ fontstr xmenuw) = xmdata
-
-    selectInput display xmenuw (exposureMask
-                            .|. keyPressMask
-                            .|. buttonPressMask
-                            .|. focusChangeMask
-                            .|. structureNotifyMask)
-
-    mapWindow display xmenuw
-    setInputFocus display xmenuw revertToPointerRoot 0
-
-    let labelProps = (\lbl -> lbl { l_gen = (l_gen lbl)
-                                            { gp_border = True } })
-
-    let list = createListE "listExecs" 20 90 360 100 35
-             . map (\(no, str) -> listLabelE ("listLabel" ++ show no)
-                                             str 0 labelProps)
-             . zip [1..]
-             $ ([ ] :: [String])
-
-    let inputLabelEvent str xm =
-            return . Just
-                   . replaceElement xm 1
-                   . XMListE
-                   . (flip resetList) (Just 0)
-                   . setElementsFromList list
-                   . map (\(no, str) -> listLabelE ("lblEl" ++ show no)
-                                        str 0 labelProps xmglob)
-                   . zip [1..]
-                   . sort
-                   . filter (isPrefixOf str)
-                   $ execList
-
-            where Just (XMListE list) = getElementByName xm "listExecs"
 
     let xman = runReader' xmglob $ createManager
 
@@ -125,8 +120,8 @@ main = do
                               { cb_onChange = Just $ \l -> do
 
                                         runReaderT' xmdata
-                                            . sendXMEvent eventQueue
-                                            . inputLabelEvent
+                                            . (flip sendXMGUIEvent) evq
+                                            . inputLabelEvent xmglob execList
                                             . l_val $ l
                                         return l
 
@@ -134,7 +129,7 @@ main = do
 
                                     bool (return ())
                                          (void . runReaderT' xmdata
-                                               . sendXMEvent eventQueue
+                                               . (flip sendXMGUIEvent) evq
                                                $ returnEvent)
                                          (ks == xK_Return)
                                 >>= (const $ return l)
@@ -148,12 +143,8 @@ main = do
                     })
                 ]
 
-    runReaderT' xmdata $ sendXMEvent eventQueue . return
-                                                . inputLabelEvent ""
-                                                $ xman
+    mainLoop evq xmglob (sendXMGUIEvent
+                       $ inputLabelEvent xmglob execList ""
+                        ) $ xman { xem_inFocus = Just 0 }
 
-    mainLoop eventQueue xmglob $ xman { xem_inFocus = Nothing }
 
-    freeFont display fontstr
-
-    when (debug) $ putStrLn "Done."

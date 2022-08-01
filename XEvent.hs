@@ -28,9 +28,9 @@ createEventQueue :: (XEManagerClass a, XMElementClass b)
 createEventQueue = newTBQueueIO 128
 
 sendXMEvent :: (XEManagerClass a, XMElementClass b)
-            => TBQueue (XMEvent a b) -> XMEvent a b
-            -> ReaderT XMenuData IO ()
-sendXMEvent tbq cb = ask >>= \xmdata -> liftIO $ do
+            => XMEvent a b -> XMEventQueue a b
+            -> XMenuDataM ()
+sendXMEvent cb tbq = ask >>= \xmdata -> liftIO $ do
     atomically . writeTBQueue tbq $ cb
     xmonad_test <- internAtom (g_display xmdata) "XMONAD_TEST" False
     allocaXEvent $ \ev -> do
@@ -41,7 +41,7 @@ sendXMEvent tbq cb = ask >>= \xmdata -> liftIO $ do
     (flip sync) False . g_display $ xmdata
 
 runXMEvents :: (XEManagerClass a, XMElementClass b) => a b
-            -> TBQueue (XMEvent a b) -> IO (Maybe (a b))
+            -> XMEventQueue a b -> IO (Maybe (a b))
 runXMEvents xman tbq = maybe (return $ Just xman)
                              (maybe (return Nothing)
                                     ((flip runXMEvents) tbq)

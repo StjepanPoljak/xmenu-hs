@@ -1,28 +1,33 @@
 module XList ( XMList(li_gen, li_itemHeight)
-             , createList, clearList, resetList
+             , createList
+             , clearList
+             , resetList
              ) where
 
-import XMenuGlobal
-import XContext
-import XElementClass
-import XManagerClass
 import Graphics.X11 ( setForeground, setBackground, fillRectangle
                     , drawRectangle, Pixmap, Position, Dimension
                     , createPixmap, defaultScreenOfDisplay
                     , defaultDepthOfScreen, freePixmap, copyArea
                     , xK_Up, xK_Down
                     )
-import qualified Control.Monad.Trans.Reader as RT (ReaderT, ask
-                                                  , runReaderT, reader
-                                                  )
-import Control.Monad.Reader (liftIO, Reader, runReader, ask)
-import Control.Monad (when, sequence, liftM2, mfilter)
+
 import Data.Bool (bool)
 import Data.Function ((&))
 import Data.Maybe (isJust)
 import qualified Data.Foldable as F (toList)
 import qualified Data.Sequence as S
 import qualified Data.Map as M (fromList, (!))
+
+import qualified Control.Monad.Trans.Reader as RT (ReaderT, ask
+                                                  , runReaderT, reader
+                                                  )
+import Control.Monad.Reader (liftIO, Reader, runReader, ask)
+import Control.Monad (when, sequence, liftM2, mfilter)
+
+import XMenuGlobal
+import XContext
+import XElementClass
+import XManagerClass
 
 data XMList a = XMList { li_gen         :: XMGenProps
                        , li_cbs         :: XMCallbacks (XMList a)

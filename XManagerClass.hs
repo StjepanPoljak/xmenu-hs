@@ -110,9 +110,10 @@ class XEManagerClass f where
                                            $ focusOverridesEsc xem)
                             $ getFocus xem
 
-        | ks == xK_Tab      = return $ changeFocus xem Forward
+--        | ks == xK_Tab      = return $ changeFocus xem Forward
 
-        | otherwise = maybe (return xem) forwardKeyTo $ getFocus xem
+        | otherwise         = maybe (return xem) forwardKeyTo
+                            $ getFocus xem
 
         where forwardFuncTo foc fn = return
                                    . replaceElement xem foc

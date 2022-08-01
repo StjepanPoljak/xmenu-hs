@@ -1,6 +1,7 @@
 module XMenuGlobal
     ( XMenuOpts(..)
     , XMenuData(..)
+    , XMenuDataM
     , XMenuGlobal(..)
     , XMGenProps(..)
     , XMCallbacks(..)
@@ -21,6 +22,7 @@ import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
                     )
 import Data.Bool (bool)
 import Control.Monad.Reader (ask, Reader)
+import Control.Monad.Trans.Reader (ReaderT)
 import Control.Monad ((<=<))
 
 debugColor :: Pixel
@@ -54,6 +56,8 @@ data XMenuData = XMenuData { g_display      :: Display
                            , g_fontStruct   :: FontStruct
                            , g_xmenuw       :: Window
                            }
+
+type XMenuDataM a = ReaderT XMenuData IO a
 
 data XMenuGlobal = XMenuGlobal { g_xmopts   :: XMenuOpts
                                , g_xmdata   :: XMenuData
