@@ -22,15 +22,16 @@ import qualified Control.Monad.Trans.Reader as RT (ReaderT, ask
                                                   , runReaderT, reader
                                                   )
 import Control.Monad.Reader (liftIO, Reader, runReader, ask)
-import Control.Monad (when, sequence, liftM2, mfilter)
+import Control.Monad (when, sequence, liftM2, mfilter, liftM)
 
 import XMenuGlobal
 import XContext
 import XElementClass
 import XManagerClass
+import XEvent
 
 data XMList a = XMList { li_gen         :: XMGenProps
-                       , li_cbs         :: XMCallbacks (XMList a)
+                       , li_events      :: XMElEventMap (XMList a)
                        , li_items       :: XMItems a
                        , li_selected    :: Maybe Int
                        , li_viewY       :: Position
@@ -49,7 +50,7 @@ createList name x y w h ih lst = ((uncurry . liftM2 $ (,))
                                              . (flip setElements)
                                                (S.fromList
                                                  . map (xmg &) $ lst)
-                                        $ XMList gp defaultCallbacks S.empty
+                                        $ XMList gp emptyEventMap S.empty
                                                  Nothing 0 ih
 
 instance XEManagerClass XMList where
@@ -59,6 +60,7 @@ instance XEManagerClass XMList where
     setElements list els = processList $ list { li_items = els }
     getMap _ = Nothing
     setMap xem _ = xem
+    getEventMap _ = emptyEventMap
 
 instance (XMElementClass a) => XMElementClass (XMList a) where
     drawContents = drawList
@@ -66,19 +68,14 @@ instance (XMElementClass a) => XMElementClass (XMList a) where
     getGenProps = li_gen
     setGenProps list gp = list { li_gen = gp }
 
-    getCallbacks = Just . li_cbs
+    getElEventMap = li_events
 
-    sendKeyInput list ks = (\lst -> runCB2 lst ks cb_onKeyPress)
-        =<< bool (return list)
-                 (maybe (return . changeFocus list $ Forward)
-                        (\foc -> return
-                               . bool ((flip keyScrollToFocus) ksToDir
-                                      . changeFocus list $ ksToDir)
-                                      list
-                               . direction (foc + 1 == li_length list)
-                                           (foc == 0)
-                               $ ksToDir) $ getFocus list)
-                 (ks == xK_Up || ks == xK_Down)
+    sendKeyInput list ks = (\(lst, rdrw) -> liftM (flip (,) rdrw)
+                                          $ runElEvent lst (XMKeyEvent ks))
+        . bool ((list, False))
+               ((flip (,)) True . maybe (resetList list $ Just 0)
+                                       walkList $ getFocus list)
+        $ (ks == xK_Up || ks == xK_Down)
 
         where ksToDir = M.fromList [ (xK_Up,     Backward)
                                    , (xK_Down,   Forward)
@@ -89,6 +86,13 @@ instance (XMElementClass a) => XMElementClass (XMList a) where
 
               focIsFirst = isJust . mfilter (0 ==)
                          . getFocus $ list
+
+              walkList foc = bool ((flip keyScrollToFocus) ksToDir
+                                  . changeFocus list $ ksToDir)
+                                  list
+                           . direction (foc + 1 == li_length list)
+                                       (foc == 0)
+                           $ ksToDir
 
 processList :: (XMElementClass a) => XMList a -> XMList a
 processList list = list { li_items = fst

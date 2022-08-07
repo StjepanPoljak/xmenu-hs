@@ -4,24 +4,26 @@ module XMenuGlobal
     , XMenuDataM
     , XMenuGlobal(..)
     , XMGenProps(..)
-    , XMCallbacks(..)
-    , XMCallbackT
-    , XMCallback2T
+--    , XMCallbacks(..)
+--    , XMCallbackT
+--    , XMCallback2T
     , createFont
     , getColorsDynamic
     , defaultGenProps
-    , runCallback
-    , runCallback2
-    , defaultCallbacks
+--    , runCallback
+--    , runCallback2
+--    , defaultCallbacks
     , debugColor
+    , redraw
     ) where
 
-import Graphics.X11 ( Dimension, Pixel, FontStruct, Font
+import Graphics.X11 ( Dimension, Pixel, FontStruct, Font, allocaXEvent
                     , Screen, ScreenNumber, Display, Window
-                    , Position, KeySym
+                    , Position, KeySym, exposureMask, sendEvent, expose
                     )
+import Graphics.X11.Xlib.Extras (setEventType)
 import Data.Bool (bool)
-import Control.Monad.Reader (ask, Reader)
+import Control.Monad.Reader (ask, Reader, liftIO)
 import Control.Monad.Trans.Reader (ReaderT)
 import Control.Monad ((<=<))
 
@@ -109,3 +111,12 @@ defaultGenProps name x y w h = ask >>= \(XMenuGlobal xmopts xmdata) ->
                              (g_fgColor xmopts) (g_bgColor xmopts) False 1
                              False (g_fontStruct xmdata) True False
                              (g_fgFocColor xmopts) (g_bgFocColor xmopts)
+
+redraw :: XMenuDataM ()
+redraw = ask >>= \xmdata -> liftIO
+               $ allocaXEvent $ \ev -> do
+                    setEventType ev expose
+                    sendEvent (g_display xmdata) (g_xmenuw xmdata) False
+                              exposureMask ev
+
+

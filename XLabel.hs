@@ -1,5 +1,5 @@
 module XLabel
-    ( XMLabel(l_gen,l_val,l_cbs)
+    ( XMLabel(l_gen,l_val,l_events)
     , defaultLabel
     , emptyLabel
     , listLabel
@@ -21,9 +21,10 @@ import qualified Data.Map as M (fromList, (!?))
 import XContext
 import XElementClass
 import XMenuGlobal
+import XEvent
 
 data XMLabel = XMLabel { l_gen          :: XMGenProps
-                       , l_cbs          :: XMCallbacks XMLabel
+                       , l_events       :: XMElEventMap XMLabel
                        , l_val          :: String
                        , l_dispVal      :: Either String String
                        }
@@ -68,8 +69,11 @@ allowedChars = (fst $ unzip specialChars) ++ alphanum
 
 instance XMElementClass XMLabel where
     sendKeyInput label ks =
-        (\lbl -> runCB2 lbl ks cb_onKeyPress)
-             <=< either return ((flip runCB) cb_onChange)
+        (\(lbl, rdrw) -> liftM ((flip (,)) rdrw)
+                       $ runElEvent lbl (XMKeyEvent ks))
+             <=< either (\lbl -> return (lbl, False))
+                        (\lbl -> liftM ((flip (,)) True)
+                               $ runElEvent lbl XMChangeEvent)
                $ if ks == xK_BackSpace
                  then bool (Right $ removeCharFromLabel label)
                            (Left label)
@@ -83,7 +87,7 @@ instance XMElementClass XMLabel where
     getGenProps = l_gen
     drawContents = drawLabel
     setGenProps label gpr = label { l_gen = gpr }
-    getCallbacks = Just . l_cbs
+    getElEventMap = l_events
 
 appendCharToLabel :: XMLabel -> Char -> XMLabel
 appendCharToLabel label char = case l_dispVal label of
@@ -129,7 +133,7 @@ emptyDispVal = Right ""
 emptyLabel :: String -> Position -> Position -> Dimension -> Dimension
            -> Reader XMenuGlobal XMLabel
 emptyLabel name x y w h = defaultGenProps name x y w h >>= \gp ->
-            return $ XMLabel gp defaultCallbacks "" emptyDispVal
+            return $ XMLabel gp emptyEventMap "" emptyDispVal
 
 defaultLabel :: String -> String -> Position -> Position -> Dimension
              -> Dimension -> Reader XMenuGlobal XMLabel

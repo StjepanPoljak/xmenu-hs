@@ -1,16 +1,16 @@
 module Main where
 
-import Graphics.X11 (xK_Return)
+import Graphics.X11 (xK_Return, xK_Up, xK_Down, KeySym)
 
 import Data.Bits ((.|.))
 import Data.List (isPrefixOf, concat, sort, nub)
 import Data.Bool (bool)
+import Data.Function ((&))
+import Data.Maybe (isJust, fromJust)
+import qualified Data.Map as M ((!?), fromList)
 
-import Control.Concurrent (forkIO)
-
-import Control.Monad.Reader (runReader, liftIO)
-import Control.Monad.Trans.Reader (runReaderT, ask, ReaderT)
-import Control.Monad (when, (<=<), liftM, foldM, void)
+import Control.Monad.Trans.Reader (runReaderT)
+import Control.Monad ((<=<), liftM, foldM, void, mfilter)
 
 import System.Environment (getEnv)
 import System.Directory (getDirectoryContents)
@@ -55,16 +55,51 @@ getExecStr xm = case getFocus list of
     where Just (XMLabelE label) = getElementByName xm "inputLabel"
           Just (XMListE list) = getElementByName xm "listExecs"
 
-returnEvent :: (XEManagerClass f) => XMEvent f XMElement
+returnEvent :: (XEManagerClass f) => XMEventCB (f XMElement)
 returnEvent xm = let strlst = words . getExecStr $ xm
                      comm = bool (head strlst) "" (null strlst)
                      args = bool (drop (length strlst - 1) strlst)
                                  []
                                  (length strlst <= 1)
-                 in bool ((const $ return Nothing) <=< forkIO $
+                 in bool ((const $ return Nothing) <=<
                             void $ createProcess (proc comm args))
                          (return $ Just xm)
                          (null comm)
+
+arrowEvent :: (XEManagerClass f) => KeySym -> XMenuData
+           -> XMEventQueue (f XMElement) -> XMEventCB (f XMElement)
+arrowEvent ks xmdata evq xm = case getFocus xm of
+
+    Just foc    -> ksToDir ks & case (gp_name . getGenProps
+                                              . getElement xm) foc of
+
+        "inputLabel"    -> direction (return . Just
+                                             $ changeFocus xm Forward)
+                                     (return $ Just xm)
+
+        "listExecs"     -> direction (return . Just
+                                           <=< runReaderT' xmdata
+                                             $ forwardKey xm ks
+                                                          evq foc
+                                     )
+                                     (bool (return . Just
+                                                   $ changeFocus xm Backward)
+                                           (return . Just
+                                                 <=< runReaderT' xmdata
+                                                   $ forwardKey xm ks
+                                                                evq foc)
+                                           (isJust . mfilter (>0)
+                                                   . (\(XMListE l) ->
+                                                            getFocus l)
+                                                   $ getElement xm foc)
+                                     )
+
+    Nothing     -> return $ Just $ changeFocus xm Forward
+
+    where ksToDir = fromJust
+                  . (M.!?) (M.fromList [ (xK_Up, Backward)
+                                       , (xK_Down, Forward)
+                                       ])
 
 labelProps :: XMLabel -> XMLabel
 labelProps = (\lbl -> lbl { l_gen = (l_gen lbl)
@@ -77,12 +112,17 @@ list = createListE "listExecs" 20 90 360 100 35
      $ ([ ] :: [String])
 
 inputLabelEvent :: (XEManagerClass f) => XMenuGlobal -> [String] -> String
-                -> XMEvent f XMElement
+                -> XMEventCB (f XMElement)
 inputLabelEvent xmglob execList str xm =
 
     return . Just
            . replaceElement xm 1
            . XMListE
+           . (\lst -> lst { li_gen = (li_gen lst)
+                                     { gp_canFocus = not
+                                                   . null
+                                                   . getElements
+                                                   $ lst } } )
            . (flip resetList) (Just 0)
            . setElementsFromList list
            . map (\(no, str) -> listLabelE ("lblEl" ++ show no)
@@ -109,42 +149,45 @@ main = do
     let (XMenuGlobal _ xmdata) = xmglob
     let (XMenuData display _ _ fontstr xmenuw) = xmdata
 
-    let xman = runReader' xmglob $ createManager
+    let xman = (runReader' xmglob $ createManager
 
                 [ (emptyLabelE "inputLabel" 20 20 360 50 $ \lbl -> lbl
                     { l_gen = (l_gen lbl)
                               { gp_border = True
-                              , gp_overridesEsc = True
                               }
-                    , l_cbs = (l_cbs lbl)
-                              { cb_onChange = Just $ \l -> do
+                    , l_events = eventMapFromList
+                              [ (XMChangeEvent, (\l -> do
 
-                                        runReaderT' xmdata
-                                            . (flip sendXMGUIEvent) evq
-                                            . inputLabelEvent xmglob execList
-                                            . l_val $ l
-                                        return l
-
-                              , cb_onKeyPress = Just $ \l ks ->
-
-                                    bool (return ())
-                                         (void . runReaderT' xmdata
-                                               . (flip sendXMGUIEvent) evq
-                                               $ returnEvent)
-                                         (ks == xK_Return)
-                                >>= (const $ return l)
-                              }
+                                    runReaderT' xmdata
+                                        . (flip sendXMGUIEvent) evq
+                                        . inputLabelEvent xmglob execList
+                                        . l_val $ l
+                                    return l)
+                                )
+                              ]
                     })
                 , (list $ \lst -> lst
                     { li_gen = (li_gen lst)
-                               { gp_overridesEsc = True
-                               , gp_border = True
+                               { gp_border = True
                                }
                     })
-                ]
+                ]) { xem_inFocus = Just 0
+                   , xem_eventMap = (flip eventMapUnion) eventMap
+                                  . eventMapFromList
+                                  $ [ ( XMKeyEvent xK_Return
+                                      , sendXMGUIEvent returnEvent
+                                      )
+                                    , ( XMKeyEvent xK_Up
+                                      , sendXMGUIEvent $ arrowEvent xK_Up
+                                                                    xmdata evq)
+                                    , ( XMKeyEvent xK_Down
+                                      , sendXMGUIEvent $ arrowEvent xK_Down
+                                                                    xmdata evq)
+                                    ]
+                   }
+            where eventMap = defaultEventMap
 
-    mainLoop evq xmglob (sendXMGUIEvent
-                       $ inputLabelEvent xmglob execList ""
-                        ) $ xman { xem_inFocus = Just 0 }
+    let onInit = sendXMGUIEvent $ inputLabelEvent xmglob execList ""
 
+    mainLoop evq xmglob onInit xman
 

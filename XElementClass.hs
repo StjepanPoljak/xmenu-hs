@@ -3,22 +3,26 @@ module XElementClass ( XMElementClass(..)
 
 import XContext
 import XMenuGlobal
+import XEvent
+
 import Graphics.X11 (KeySym, copyArea, createPixmap, freePixmap
                     , setForeground, defaultScreenOfDisplay, Dimension
                     , defaultDepthOfScreen, fillRectangle)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT, ask)
 import Control.Monad.Reader (liftIO)
 import Control.Monad (when)
+
 import Data.Bool (bool)
+import Data.Function ((&))
 
 class XMElementClass a where
-    sendKeyInput :: a -> KeySym -> IO a
+    sendKeyInput :: a -> KeySym -> IO (a, Bool)
     drawContents :: XMContext -> a -> Dimension -> Dimension -> Bool
                  -> ReaderT XMenuData IO ()
     getGenProps :: a -> XMGenProps
     setGenProps :: a -> XMGenProps -> a
 
-    getCallbacks :: a -> Maybe (XMCallbacks a)
+    getElEventMap :: a -> XMElEventMap a
 
     canFocus :: a -> Bool
     canFocus = gp_canFocus . getGenProps
@@ -26,14 +30,15 @@ class XMElementClass a where
     updateGenProps :: a -> (XMGenProps -> XMGenProps) -> a
     updateGenProps xmel f = setGenProps xmel $ f (getGenProps xmel)
 
-    runCB :: a -> (XMCallbacks a -> XMCallbackT a) -> IO a
-    runCB el cb = maybe (return el) ((flip runCallback el) . cb)
-                . getCallbacks $ el
+    runElEvent :: a -> XMEvent -> IO a
+    runElEvent el ev = maybe (return el) (el&)
+                . (flip getXMEvent) ev
+                . getElEventMap $ el
 
-    runCB2 :: a -> b -> (XMCallbacks a -> XMCallback2T a b) -> IO a
-    runCB2 el el2 cb = maybe (return el)
-                             (\cbs -> runCallback2 (cb cbs) el el2)
-                     . getCallbacks $ el
+    -- runCB2 :: a -> b -> (XMCallbacks a -> XMCallback2T a b) -> IO a
+    --runCB2 el el2 cb = maybe (return el)
+    --                         (\cbs -> runCallback2 (cb cbs) el el2)
+    --                 . getCallbacks $ el
 
     drawElement :: XMContext -> a -> Bool -> ReaderT XMenuData IO ()
     drawElement context el focd = ask >>= \xmdata -> do

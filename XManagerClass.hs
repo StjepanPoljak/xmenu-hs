@@ -4,6 +4,7 @@ module XManagerClass ( XEManager(..)
                      , XEFocusDirection(..)
                      , direction
                      , XMItems
+                     , defaultEventMap
                      ) where
 
 import Graphics.X11 (KeyCode, KeySym, xK_Escape, xK_Tab)
@@ -17,13 +18,14 @@ import qualified Data.Foldable as F (toList)
 import qualified Data.Map as M (Map, fromList, (!?))
 import Data.Function ((&))
 
-import Control.Monad ((<=<), liftM)
-import Control.Monad.Trans.Reader (ReaderT)
+import Control.Monad ((<=<), liftM, when)
+import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Control.Monad.Reader (Reader, ask, liftIO, mfilter)
 
 import XElementClass as XE
 import XContext
 import XMenuGlobal
+import XEvent
 
 type XMItems a = S.Seq a
 type XMMap a = M.Map String Int
@@ -31,6 +33,7 @@ type XMMap a = M.Map String Int
 data XEManager a = XEManager { xem_elements         :: XMItems a
                              , xem_inFocus          :: Maybe Int
                              , xem_map              :: Maybe (XMMap a)
+                             , xem_eventMap         :: XMEventMap (XEManager a)
                              }
 
 data XEFocusDirection = Forward
@@ -49,6 +52,8 @@ class XEManagerClass f where
 
     getMap :: (XMElementClass a) => f a -> Maybe (XMMap a)
     setMap :: (XMElementClass a) => f a -> Maybe (XMMap a) -> f a
+
+    getEventMap :: (XMElementClass a) => f a -> XMEventMap (f a)
 
     generateMap :: (XMElementClass a) => f a -> f a
     generateMap xem = setMap xem
@@ -100,26 +105,33 @@ class XEManagerClass f where
                              . S.update no el
                              . getElements $ xem
 
-    sendKeyInputToManager :: (XMElementClass a) => f a
-                          -> KeySym -> IO (f a)
-    sendKeyInputToManager xem ks
-        | ks == xK_Escape   = maybe (return xem)
-                                    (\foc -> bool (forwardKeyTo foc)
-                                                  (return . setFocus xem
-                                                          $ Nothing)
-                                           $ focusOverridesEsc xem)
-                            $ getFocus xem
+    forwardKey :: (XMElementClass a) => f a -> KeySym -> XMEventQueue (f a)
+               -> Int -> XMenuDataM (f a)
+    forwardKey xem ks evq el = do
+                (nwel, rdrw) <- liftIO $ sendKeyInput (getElement xem el) ks
+                when (rdrw) $ sendRedrawEvent evq
+                return . replaceElement xem el $ nwel
 
---        | ks == xK_Tab      = return $ changeFocus xem Forward
+    sendKeyInputToManager :: (XMElementClass a) => f a -> KeySym
+                          -> XMEventQueue (f a) -> XMenuDataM ()
+    sendKeyInputToManager xem ks evq =
+                ask >>= \xmd -> maybe (sendXMEvent (keyEvent xmd) evq)
+                                      (evq&)
+                              . getXMEvent (getEventMap xem)
+                              $ XMKeyEvent ks
 
-        | otherwise         = maybe (return xem) forwardKeyTo
-                            $ getFocus xem
-
-        where forwardFuncTo foc fn = return
-                                   . replaceElement xem foc
-                                 <=< fn
-                                   . getElement xem $ foc
-              forwardKeyTo = (flip forwardFuncTo) ((flip sendKeyInput) ks)
+          where forwardKey xem' foc = (\(nwel, rdrw) -> return
+                                                      . (flip (,)) rdrw
+                                                      . replaceElement xem' foc
+                                                      $ nwel)
+                                  <=< (flip sendKeyInput) ks
+                                    . getElement xem' $ foc
+                keyEvent xmd xem' = do
+                        (nwxm, rdrw) <- liftIO $ maybe (return (xem', False))
+                                                       (forwardKey xem')
+                                               . getFocus $ xem'
+                        (flip runReaderT) xmd $ sendRedrawEvent evq
+                        return (Just nwxm)
 
     drawAll :: (XMElementClass a) => f a -> XMContext
             -> ReaderT XMenuData IO ()
@@ -181,10 +193,28 @@ instance XEManagerClass (XEManager) where
     getMap = xem_map
     setMap xem map = xem { xem_map = map }
 
+    getEventMap = xem_eventMap
+
+defaultEventMap :: (XEManagerClass a, XMElementClass b) => XMEventMap (a b)
+defaultEventMap = eventMapFromList
+                              [ ( XMKeyEvent xK_Escape, sendXMGUIEvent
+                                $ (\xman -> return
+                                          . bool Nothing
+                                                 (Just $ setFocus xman Nothing)
+                                          $ focusOverridesEsc xman)
+                                )
+                              ,
+                                ( XMKeyEvent xK_Tab, sendXMGUIEvent
+                                        $ return
+                                        . Just
+                                        . (flip changeFocus) Forward
+                                )
+                              ]
+
 createManager :: (XMElementClass b) => [XMenuGlobal -> b]
               -> Reader XMenuGlobal (XEManager b)
 createManager xels = return
-                   . (\els -> XEManager els Nothing Nothing)
+                   . (\els -> XEManager els Nothing Nothing defaultEventMap)
                    . S.fromList
                    . (flip map) xels
                    . (&)

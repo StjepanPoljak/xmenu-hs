@@ -5,13 +5,16 @@ module XElement ( XMElement(..)
                 , createListE
                 ) where
 
+import Graphics.X11 (Dimension)
+
 import XLabel
 import XList
 import XElementClass
-import Control.Monad (liftM)
-import Control.Monad.Trans.Reader (runReader, Reader)
+import XEvent
 import XMenuGlobal
-import Graphics.X11 (Dimension)
+
+import Control.Monad (liftM, (<=<))
+import Control.Monad.Trans.Reader (runReader, Reader)
 
 data XMElement = XMLabelE XMLabel
                | XMListE (XMList XMElement)
@@ -34,10 +37,12 @@ createListE name x y w h ih l f = XMListE
 
 instance XMElementClass XMElement where
 
-    sendKeyInput (XMLabelE label) = liftM XMLabelE
-                                  . sendKeyInput label
-    sendKeyInput (XMListE list) = liftM XMListE
-                                . sendKeyInput list
+    sendKeyInput (XMLabelE label) = return
+                                  . (\(lbl, rdrw) -> (XMLabelE lbl, rdrw))
+                                <=< sendKeyInput label
+    sendKeyInput (XMListE list) = return
+                                . (\(lbl, rdrw) -> (XMListE lbl, rdrw))
+                              <=< sendKeyInput list
 
     drawContents ctx (XMLabelE label) = drawContents ctx label
     drawContents ctx (XMListE list) = drawContents ctx list
@@ -48,4 +53,4 @@ instance XMElementClass XMElement where
     setGenProps (XMListE list) = XMListE . setGenProps list
     setGenProps (XMLabelE label) = XMLabelE . setGenProps label
 
-    getCallbacks _ = Nothing
+    getElEventMap _ = emptyEventMap
