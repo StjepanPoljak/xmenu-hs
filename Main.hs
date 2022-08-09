@@ -15,6 +15,7 @@ import Control.Monad ((<=<), liftM, foldM, void, mfilter)
 import System.Environment (getEnv)
 import System.Directory (getDirectoryContents)
 import System.Process (createProcess, proc)
+import System.FilePath (getSearchPath)
 
 import XEvent
 import XMenuGlobal
@@ -26,21 +27,12 @@ import XElement
 import XList
 import XWindow
 
-splitPathVar :: String -> [String]
-splitPathVar str = case dropWhile (== ':') str of
-                        "" -> []
-                        s' -> w : splitPathVar s''
-                              where (w, s'') = break (==':') s'
-
-getPathVar :: IO [String]
-getPathVar = liftM splitPathVar $ getEnv "PATH"
-
 getFilesFromPathVar :: IO [String]
 getFilesFromPathVar = foldM (\acc x ->
                                 liftM (filter (not . (flip elem) [".", ".."])
                                      . concat . (:[acc]))
                                      $ getDirectoryContents x)
-                            [] =<< getPathVar
+                            [] =<< getSearchPath
 
 getExecStr :: (XEManagerClass f) => f XMElement -> String
 getExecStr xm = case getFocus list of
