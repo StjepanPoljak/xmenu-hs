@@ -153,7 +153,8 @@ keyScrollToFocus list dir = bool list (direction scrollDown scrollUp dir) . isFo
     where Just foc = getFocus $ list
           gpFoc = getGenProps . getElement list $ foc
           gpList = li_gen list
-          scrollDown = list { li_viewY = gp_y gpFoc + fromIntegral (2 * gp_yPad gpFoc)
+          scrollDown = list { li_viewY = gp_y gpFoc
+                                       + fromIntegral (2 * gp_yPad gpFoc)
                                        + fromIntegral (gp_height gpFoc)
                                        - fromIntegral (gp_height gpList) }
           scrollUp = list { li_viewY = gp_y gpFoc }
@@ -163,7 +164,8 @@ clearList = (flip setElements) S.empty
           . (flip setFocus) Nothing
 
 resetList :: (XMElementClass a) => XMList a -> Maybe Int -> XMList a
-resetList lst foc = (\lst' -> lst' { li_viewY = 0 }) . setFocus lst . bool foc Nothing . isEmpty $ lst
+resetList lst foc = (\lst' -> lst' { li_viewY = 0 })
+                  . setFocus lst . bool foc Nothing . isEmpty $ lst
 
 insertElement :: (XMElementClass a) => XMList a -> a -> Int -> XMList a
 insertElement list el pos = processList

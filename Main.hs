@@ -97,12 +97,6 @@ labelProps :: XMLabel -> XMLabel
 labelProps = (\lbl -> lbl { l_gen = (l_gen lbl)
                                     { gp_border = True } })
 
-list = createListE "listExecs" 20 90 360 100 35
-     . map (\(no, str) -> listLabelE ("listLabel" ++ show no)
-                                     str 0 labelProps)
-     . zip [1..]
-     $ ([ ] :: [String])
-
 inputLabelEvent :: (XEManagerClass f) => XMenuGlobal -> [String] -> String
                 -> XMEventCB (f XMElement)
 inputLabelEvent xmglob execList str xm =
@@ -143,7 +137,7 @@ main = do
 
     let xman = (runReader' xmglob $ createManager
 
-                [ (emptyLabelE "inputLabel" 20 20 360 50 $ \lbl -> lbl
+                [ (emptyTextFieldE "inputLabel" 20 20 360 50 $ \lbl -> lbl
                     { l_gen = (l_gen lbl)
                               { gp_border = True
                               }
@@ -158,7 +152,10 @@ main = do
                                 )
                               ]
                     })
-                , (list $ \lst -> lst
+                , ((createListE "listExecs" 20 90 360 100 35
+                    . map (\(no, str) -> listLabelE ("listLabel" ++ show no)
+                                                    str 0 labelProps)
+                    . zip [1..] $ ([ ] :: [String])) $ \lst -> lst
                     { li_gen = (li_gen lst)
                                { gp_border = True
                                }

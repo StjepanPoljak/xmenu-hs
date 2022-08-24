@@ -2,7 +2,9 @@ module XLabel
     ( XMLabel(l_gen,l_val,l_events)
     , defaultLabel
     , emptyLabel
+    , emptyTextField
     , listLabel
+    , drawLabel
     ) where
 
 import Graphics.X11
@@ -23,10 +25,18 @@ import XElementClass
 import XMenuGlobal
 import XEvent
 
+data XMLabelMode = XMLabelM
+                 | XMTextFieldM { tf_cursor     :: Int
+                                , tf_cursorW    :: Dimension
+                                , tf_cursorX    :: Position
+                                , tf_viewX      :: Position
+                                , tf_background :: Maybe Pixmap }
+
 data XMLabel = XMLabel { l_gen          :: XMGenProps
                        , l_events       :: XMElEventMap XMLabel
                        , l_val          :: String
                        , l_dispVal      :: Either String String
+                       , l_mode         :: XMLabelMode
                        }
 
 l_x             = gp_x . l_gen
@@ -68,26 +78,63 @@ allowedChars = (fst $ unzip specialChars) ++ alphanum
                    $ ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']
 
 instance XMElementClass XMLabel where
-    sendKeyInput label ks =
-        (\(lbl, rdrw) -> liftM ((flip (,)) rdrw)
-                       $ runElEvent lbl (XMKeyEvent ks))
-             <=< either (\lbl -> return (lbl, False))
-                        (\lbl -> liftM ((flip (,)) True)
-                               $ runElEvent lbl XMChangeEvent)
-               $ if ks == xK_BackSpace
-                 then bool (Right $ removeCharFromLabel label)
-                           (Left label)
-                           (null $ l_val label)
-
-                 else bool (Left label)
-                           (Right . appendCharToLabel label
-                                  . getKeyStr $ ks)
-                           (ks `elem` allowedChars)
-
+    sendKeyInput lbl = case l_mode lbl of
+                        XMLabelM                -> sendKeyInputLabel lbl
+                        XMTextFieldM _ _ _ _ _  -> sendKeyInputTextField lbl
     getGenProps = l_gen
-    drawContents = drawLabel
+    drawContents ctx lbl = case l_mode lbl of
+                        XMLabelM                -> drawLabel ctx lbl
+                        XMTextFieldM _ _ _ _ _  -> drawTextField ctx lbl
+
     setGenProps label gpr = label { l_gen = gpr }
     getElEventMap = l_events
+
+sendKeyInputLabel label ks =
+    (\(lbl, rdrw) -> liftM ((flip (,)) rdrw)
+                   $ runElEvent lbl (XMKeyEvent ks))
+         <=< either (\lbl -> return (lbl, False))
+                    (\lbl -> liftM ((flip (,)) True)
+                           $ runElEvent lbl XMChangeEvent)
+           $ if ks == xK_BackSpace
+             then bool (Right $ removeCharFromLabel label)
+                       (Left label)
+                       (null $ l_val label)
+
+             else bool (Left label)
+                       (Right . appendCharToLabel label
+                              . getKeyStr $ ks)
+                       (ks `elem` allowedChars)
+
+moveCursor :: KeySym -> XMLabel -> XMLabel
+moveCursor ks lbl = alignAfterMove . updateCursorX
+                  $ lbl { l_mode = (l_mode lbl)
+                            { tf_cursor = maybe l_cursor id . (M.!?) ksMap $ ks
+                            }
+                        }
+    where l_cursor = tf_cursor (l_mode lbl)
+          ksMap = M.fromList [ ( xK_Left
+                               , max 0 (l_cursor - 1)
+                               )
+                             , ( xK_Right
+                               , min (length $ l_val lbl)
+                                     (l_cursor + 1))
+                             ]
+
+sendKeyInputTextField label ks =
+    (\(lbl, rdrw) -> liftM ((flip (,)) rdrw)
+                   $ runElEvent lbl (XMKeyEvent ks))
+         <=< (\(changed, redraw, lbl) -> bool (return (lbl, redraw))
+                    (liftM ((flip (,)) True) $ runElEvent lbl XMChangeEvent) changed)
+           $ if ks == xK_BackSpace
+             then let newL = removeCharFromTextField label
+                  in (l_val label == l_val newL, True, newL)
+             else if ks `elem` [xK_Left, xK_Right]
+             then let newL = moveCursor ks label
+                  in (False, tf_cursor (l_mode label) == tf_cursor (l_mode newL), newL)
+             else bool ((False, False, label))
+                       ((True, True, appendCharToTextField label
+                                   . getKeyStr $ ks))
+                       (ks `elem` allowedChars)
 
 appendCharToLabel :: XMLabel -> Char -> XMLabel
 appendCharToLabel label char = case l_dispVal label of
@@ -115,6 +162,46 @@ removeCharFromLabel label
                                               (l_val newLabel)
           newWwPad = newWidth + 2 * (l_xPad label)
 
+removeCharFromTextField :: XMLabel -> XMLabel
+removeCharFromTextField label
+    | l_cursor == 0     = label
+    | otherwise         = adjustAfterModify
+                        . updateCursorX
+                        $ label { l_val = remove (l_val label)
+                                                 (-1 + l_cursor)
+                                , l_mode = (l_mode label)
+                                        { tf_cursor = l_cursor - 1
+                                        }
+                                }
+    where remove str pos = take pos str ++ drop (pos + 1) str
+          l_cursor = tf_cursor (l_mode label)
+
+appendCharToTextField :: XMLabel -> Char -> XMLabel
+appendCharToTextField label char = adjustAfterModify
+                                 . updateCursorX
+                                 $ label { l_val   = newVal
+                                         , l_mode  = (l_mode label)
+                                            { tf_cursor = l_cursor + 1 }
+                                         }
+    where insert str ch pos = take pos str ++ [ch] ++ drop pos str
+          l_cursor = tf_cursor (l_mode label)
+          newVal = insert (l_val label) char (l_cursor)
+
+adjustAfterModify :: XMLabel -> XMLabel
+adjustAfterModify lbl
+    | wholeViewW < textW = lbl { l_mode = (l_mode lbl)
+                                    { tf_viewX = fromIntegral textW
+                                               - fromIntegral wholeViewW
+                               } }
+    | otherwise = bool lbl
+                       (lbl { l_mode = (l_mode lbl) { tf_viewX = 0 } })
+                       (0 < tf_viewX (l_mode lbl))
+
+    where wholeViewW = gp_width (l_gen lbl)
+                     - fromIntegral (tf_cursorW $ l_mode lbl)
+                     - (2 * gp_xPad (l_gen lbl))
+          textW = fromIntegral $ textWidth (l_fontStruct lbl) (l_val lbl)
+
 fitText :: XMLabel -> XMLabel
 fitText label
     | dispLen == 0                  = label
@@ -122,6 +209,7 @@ fitText label
                                         l_dispVal = liftM init (l_dispVal label)
                                         })
     | otherwise                     = label { l_dispVal = Left currLabel }
+
     where width' = fromIntegral $ textWidth (l_fontStruct label) currLabel
           widthWithPad = width' + (2 * l_xPad label)
           currLabel = (fromRight "" $ l_dispVal label) ++ "..."
@@ -133,7 +221,13 @@ emptyDispVal = Right ""
 emptyLabel :: String -> Position -> Position -> Dimension -> Dimension
            -> Reader XMenuGlobal XMLabel
 emptyLabel name x y w h = defaultGenProps name x y w h >>= \gp ->
+            return $ XMLabel gp emptyEventMap "" emptyDispVal XMLabelM
+
+emptyTextField :: String -> Position -> Position -> Dimension -> Dimension
+               -> Reader XMenuGlobal XMLabel
+emptyTextField name x y w h = defaultGenProps name x y w h >>= \gp ->
             return $ XMLabel gp emptyEventMap "" emptyDispVal
+                             (XMTextFieldM 0 2 0 0 Nothing)
 
 defaultLabel :: String -> String -> Position -> Position -> Dimension
              -> Dimension -> Reader XMenuGlobal XMLabel
@@ -151,6 +245,7 @@ getDispVal label
     | totalWidth < l_width' label       = Right $ l_val label
     | approxCharWidth < l_width' label  = Left $ addUntilFit approxCharCount
     | otherwise                         = Left $ delUntilFit approxCharCount
+
     where approxDispVal = take approxCharCount (l_val label)
           totalWidth = fromIntegral $ textWidth (l_fontStruct label)
                                                 (l_val label)
@@ -195,3 +290,74 @@ drawLabel context label w h focd = RT.ask >>= \xmdata -> do
     where lbly = fromIntegral $ (h + fromIntegral asc) `div` 2
           (_, asc, _, _) = textExtents (l_fontStruct label)
                                        (l_val label)
+
+getCursorX :: XMLabel -> Position
+getCursorX label = textWidth (l_fontStruct label)
+                 . take cursorCount
+                 . l_val $ label
+
+    where cursorCount = tf_cursor . l_mode $ label
+
+updateCursorX :: XMLabel -> XMLabel
+updateCursorX lbl = lbl { l_mode = (l_mode lbl)
+                                { tf_cursorX = getCursorX lbl }
+                        }
+
+alignAfterMove :: XMLabel -> XMLabel
+alignAfterMove lbl
+    | l_cursorX < l_viewX
+                + fromIntegral l_cursorW = lbl { l_mode = (l_mode lbl)
+                                                { tf_viewX = l_cursorX }
+                                               }
+    | l_cursorX + fromIntegral l_cursorW
+    > l_viewX + fromIntegral l_width = lbl { l_mode = (l_mode lbl)
+                                            { tf_viewX = l_cursorX
+                                                       - fromIntegral (l_width
+                                                                - l_cursorW) }
+                                           }
+    | otherwise = lbl
+
+    where l_cursorX = tf_cursorX $ l_mode lbl
+          l_viewX = tf_viewX $ l_mode lbl
+          l_cursorW = tf_cursorW $ l_mode lbl
+          l_width = gp_width (l_gen lbl) - fromIntegral (2 * gp_xPad (l_gen lbl))
+
+drawTextField :: XMContext -> XMLabel -> Dimension -> Dimension -> Bool
+              -> RT.ReaderT XMenuData IO ()
+drawTextField context textf w h focd = RT.ask >>= \xmdata -> do
+    let display = g_display xmdata
+    let (fgColor, bgColor) = getColorsDynamic (l_gen textf) focd
+    let (drawable, gc) = (c_drawable context, c_gc context)
+    let el_gp = getGenProps textf
+    let (el_w, el_h) = (gp_width el_gp, gp_height el_gp)
+    let pw = fromIntegral $ textWidth (l_fontStruct textf) (l_val textf)
+                          + fromIntegral (tf_cursorW $ l_mode textf) + 1
+
+    liftIO $ do
+        pixmap <- createPixmap display drawable
+                                  pw (l_height textf)
+                $ defaultDepthOfScreen
+                . defaultScreenOfDisplay
+                $ display
+
+        setForeground display gc bgColor
+        fillRectangle display pixmap gc 0 0 pw el_h
+
+        setForeground display gc fgColor
+        setBackground display gc bgColor
+        setFont display gc (fontFromFontStruct $ l_fontStruct textf)
+        drawString display pixmap gc 1 lbly (l_val textf)
+
+        fillRectangle display pixmap gc (tf_cursorX $ l_mode textf)
+                      (lbly - (fromIntegral asc') + 4)
+                      (tf_cursorW $ l_mode textf) (fromIntegral asc')
+
+        copyArea display pixmap drawable gc (tf_viewX $ l_mode textf) 0
+                 pw el_h 0 0
+
+        freePixmap display pixmap
+
+    where lbly = fromIntegral $ (h + fromIntegral asc) `div` 2
+          (_, asc, _, _) = textExtents (l_fontStruct textf)
+                                       (l_val textf)
+          asc' = asc + 8

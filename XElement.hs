@@ -1,6 +1,7 @@
 module XElement ( XMElement(..)
                 , defaultLabelE
                 , emptyLabelE
+                , emptyTextFieldE
                 , listLabelE
                 , createListE
                 ) where
@@ -26,6 +27,10 @@ defaultLabelE name v x y w h f = XMLabelE
 emptyLabelE name x y w h f = XMLabelE
                            . f
                            . runReader (emptyLabel name x y w h)
+
+emptyTextFieldE name x y w h f = XMLabelE
+                               . f
+                               . runReader (emptyTextField name x y w h)
 
 listLabelE name v h f = XMLabelE
                       . f
