@@ -130,7 +130,7 @@ class XEManagerClass f where
                         (nwxm, rdrw) <- liftIO $ maybe (return (xem', False))
                                                        (forwardKey xem')
                                                . getFocus $ xem'
-                        (flip runReaderT) xmd $ sendRedrawEvent evq
+                        when (rdrw) $ (flip runReaderT) xmd (sendRedrawEvent evq)
                         return (Just nwxm)
 
     drawAll :: (XMElementClass a) => f a -> XMContext

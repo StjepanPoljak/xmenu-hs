@@ -29,6 +29,7 @@ data XMLabelMode = XMLabelM
                  | XMTextFieldM { tf_cursor     :: Int
                                 , tf_cursorW    :: Dimension
                                 , tf_cursorX    :: Position
+                                , tf_cursorPeek :: Dimension
                                 , tf_viewX      :: Position
                                 , tf_background :: Maybe Pixmap }
 
@@ -79,12 +80,12 @@ allowedChars = (fst $ unzip specialChars) ++ alphanum
 
 instance XMElementClass XMLabel where
     sendKeyInput lbl = case l_mode lbl of
-                        XMLabelM                -> sendKeyInputLabel lbl
-                        XMTextFieldM _ _ _ _ _  -> sendKeyInputTextField lbl
+                        XMLabelM                    -> sendKeyInputLabel lbl
+                        XMTextFieldM _ _ _ _ _ _    -> sendKeyInputTextField lbl
     getGenProps = l_gen
     drawContents ctx lbl = case l_mode lbl of
-                        XMLabelM                -> drawLabel ctx lbl
-                        XMTextFieldM _ _ _ _ _  -> drawTextField ctx lbl
+                        XMLabelM                    -> drawLabel ctx lbl
+                        XMTextFieldM _ _ _ _ _ _    -> drawTextField ctx lbl
 
     setGenProps label gpr = label { l_gen = gpr }
     getElEventMap = l_events
@@ -123,17 +124,31 @@ moveCursor ks lbl = alignAfterMove . updateCursorX
 sendKeyInputTextField label ks =
     (\(lbl, rdrw) -> liftM ((flip (,)) rdrw)
                    $ runElEvent lbl (XMKeyEvent ks))
-         <=< (\(changed, redraw, lbl) -> bool (return (lbl, redraw))
-                    (liftM ((flip (,)) True) $ runElEvent lbl XMChangeEvent) changed)
+         <=< (\(changed, redraw, lbl) ->
+                    bool (return (lbl, redraw))
+                         (liftM ((flip (,)) True) . runElEvent lbl
+                                                  $ XMChangeEvent)
+                         changed)
            $ if ks == xK_BackSpace
              then let newL = removeCharFromTextField label
-                  in (l_val label == l_val newL, True, newL)
+                  in ( l_val label /= l_val newL
+                     , True
+                     , newL
+                     )
              else if ks `elem` [xK_Left, xK_Right]
              then let newL = moveCursor ks label
-                  in (False, tf_cursor (l_mode label) == tf_cursor (l_mode newL), newL)
-             else bool ((False, False, label))
-                       ((True, True, appendCharToTextField label
-                                   . getKeyStr $ ks))
+                  in ( False
+                     , tf_cursor (l_mode label) /= tf_cursor (l_mode newL)
+                     , newL
+                     )
+             else bool (( False
+                        , False
+                        , label
+                        ))
+                       (( True
+                        , True
+                        , addCharToTextField label . getKeyStr $ ks
+                       ))
                        (ks `elem` allowedChars)
 
 appendCharToLabel :: XMLabel -> Char -> XMLabel
@@ -142,6 +157,7 @@ appendCharToLabel label char = case l_dispVal label of
                                 (fitText newLabel)
                                 (newWwPad > l_width label)
         Left _          -> newLabel
+
     where newLabel = label { l_val = l_val label ++ [char] }
           newWidth = fromIntegral $ textWidth (l_fontStruct label)
                                               (l_val newLabel)
@@ -155,6 +171,7 @@ removeCharFromLabel label
         Left isFit      -> bool newLabel
                             (newLabel { l_dispVal = Right (l_val newLabel) })
                             (newWwPad < l_width label)
+
     where newLabel = label { l_val = bool (init . l_val $ label) ""
                                           (null . l_val $ label)
                            }
@@ -165,7 +182,7 @@ removeCharFromLabel label
 removeCharFromTextField :: XMLabel -> XMLabel
 removeCharFromTextField label
     | l_cursor == 0     = label
-    | otherwise         = adjustAfterModify
+    | otherwise         = adjustAfterModify XMRem
                         . updateCursorX
                         $ label { l_val = remove (l_val label)
                                                  (-1 + l_cursor)
@@ -176,31 +193,84 @@ removeCharFromTextField label
     where remove str pos = take pos str ++ drop (pos + 1) str
           l_cursor = tf_cursor (l_mode label)
 
-appendCharToTextField :: XMLabel -> Char -> XMLabel
-appendCharToTextField label char = adjustAfterModify
+addCharToTextField :: XMLabel -> Char -> XMLabel
+addCharToTextField label char = adjustAfterModify XMAdd
                                  . updateCursorX
                                  $ label { l_val   = newVal
                                          , l_mode  = (l_mode label)
                                             { tf_cursor = l_cursor + 1 }
                                          }
-    where insert str ch pos = take pos str ++ [ch] ++ drop pos str
+    where insert str ch pos
+            | pos == 0              = ch:str
+            | pos == length str     = str ++ [ch]
+            | otherwise             = take pos str ++ [ch] ++ drop pos str
           l_cursor = tf_cursor (l_mode label)
           newVal = insert (l_val label) char (l_cursor)
 
-adjustAfterModify :: XMLabel -> XMLabel
-adjustAfterModify lbl
-    | wholeViewW < textW = lbl { l_mode = (l_mode lbl)
-                                    { tf_viewX = fromIntegral textW
-                                               - fromIntegral wholeViewW
-                               } }
-    | otherwise = bool lbl
-                       (lbl { l_mode = (l_mode lbl) { tf_viewX = 0 } })
-                       (0 < tf_viewX (l_mode lbl))
+--           viewX
+--           |--tW - viewX---|
+-- |-------------tW----------|
+-- |there is |some text| here|
+--           |some t|xt|
+--           |----vW---|
+--                  |
+--                  curX
 
-    where wholeViewW = gp_width (l_gen lbl)
-                     - fromIntegral (tf_cursorW $ l_mode lbl)
-                     - (2 * gp_xPad (l_gen lbl))
-          textW = fromIntegral $ textWidth (l_fontStruct lbl) (l_val lbl)
+labelViewWidth :: XMLabel -> Dimension
+labelViewWidth lbl = gp_width (l_gen lbl)
+                   - fromIntegral (tf_cursorW $ l_mode lbl)
+                   - (2 * gp_xPad (l_gen lbl))
+
+labelTextWidth :: XMLabel -> Dimension
+labelTextWidth lbl = fromIntegral $ textWidth (l_fontStruct lbl) (l_val lbl)
+
+getRelativeCursorX :: XMLabel -> Position
+getRelativeCursorX lbl = tf_cursorX (l_mode lbl) - tf_viewX (l_mode lbl)
+
+data XMModifyMode = XMAdd | XMRem deriving Eq
+
+adjustAfterModify :: XMModifyMode -> XMLabel -> XMLabel
+adjustAfterModify mode lbl
+    | isCursorOut   = lbl { l_mode = (l_mode lbl)
+                                { tf_viewX = case mode of
+                                    XMAdd   -> let newX = l_cursorX
+                                                        - fromIntegral lblVW
+                                                   csum = newX + cursorPeek
+                                                   newX' = fromIntegral (lblTW - lblVW) :: Position
+                                               in bool newX' csum . (<) csum
+                                                                 . fromIntegral
+                                                                 $ remW
+
+                                    XMRem   -> let diff = l_cursorX - cursorPeek
+                                               in bool 0 diff . (>) diff $ 0
+                                }
+                          }
+
+    | otherwise     = if tf_viewX (l_mode lbl) < 0
+                      then lbl { l_mode = (l_mode lbl) { tf_viewX = 0 } }
+                      else case mode of
+                        XMAdd   -> lbl
+                        XMRem   -> if lblTW > lblVW && remW < 0
+                                   then lbl { l_mode = (l_mode lbl)
+                                                { tf_viewX = fromIntegral
+                                                           $ lblTW - lblVW
+                                                }
+                                            }
+                                   else if lblTW < lblVW && l_cursorX /= 0
+                                   then lbl { l_mode = (l_mode lbl)
+                                                { tf_viewX = 0 }
+                                            }
+                                   else lbl
+
+    where lblVW = labelViewWidth lbl
+          lblTW = labelTextWidth lbl
+          l_cursorX = tf_cursorX $ l_mode lbl
+          remW = fromIntegral lblTW - fromIntegral lblVW
+               - fromIntegral (tf_viewX $ l_mode lbl)
+          isCursorOut = let rcx = getRelativeCursorX lbl
+                        in rcx < 0 || rcx > fromIntegral lblVW
+          cursorPeek = (fromIntegral . tf_cursorPeek $ l_mode lbl) :: Position
+
 
 fitText :: XMLabel -> XMLabel
 fitText label
@@ -227,7 +297,7 @@ emptyTextField :: String -> Position -> Position -> Dimension -> Dimension
                -> Reader XMenuGlobal XMLabel
 emptyTextField name x y w h = defaultGenProps name x y w h >>= \gp ->
             return $ XMLabel gp emptyEventMap "" emptyDispVal
-                             (XMTextFieldM 0 2 0 0 Nothing)
+                             (XMTextFieldM 0 2 0 16 0 Nothing)
 
 defaultLabel :: String -> String -> Position -> Position -> Dimension
              -> Dimension -> Reader XMenuGlobal XMLabel
@@ -356,6 +426,8 @@ drawTextField context textf w h focd = RT.ask >>= \xmdata -> do
                  pw el_h 0 0
 
         freePixmap display pixmap
+
+        print $ tf_cursorX $ l_mode textf
 
     where lbly = fromIntegral $ (h + fromIntegral asc) `div` 2
           (_, asc, _, _) = textExtents (l_fontStruct textf)
