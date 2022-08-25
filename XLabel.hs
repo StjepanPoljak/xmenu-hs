@@ -1,5 +1,6 @@
 module XLabel
-    ( XMLabel(l_gen,l_val,l_events)
+    ( XMLabel(l_gen, l_val, l_events, l_mode)
+    , XMLabelMode(tf_cursorPeek, tf_background)
     , defaultLabel
     , emptyLabel
     , emptyTextField
@@ -17,6 +18,7 @@ import Data.Bool (bool)
 import Data.Either (fromRight, either)
 import Data.List (singleton)
 import Data.Function ((&))
+import Data.Maybe (fromJust)
 
 import qualified Data.Map as M (fromList, (!?))
 
@@ -62,6 +64,7 @@ specialChars = [ (xK_space,         ' ')
                , (xK_colon,         ':')
                , (xK_semicolon,     ';')
                , (xK_quotedbl,      '\"')
+               , (xK_apostrophe,    '\'')
                , (xK_ampersand,     '&')
                , (xK_exclam,        '!')
                , (xK_parenleft,     '(')
@@ -80,12 +83,12 @@ allowedChars = (fst $ unzip specialChars) ++ alphanum
 
 instance XMElementClass XMLabel where
     sendKeyInput lbl = case l_mode lbl of
-                        XMLabelM                    -> sendKeyInputLabel lbl
-                        XMTextFieldM _ _ _ _ _ _    -> sendKeyInputTextField lbl
+                    XMLabelM                    -> sendKeyInputLabel lbl
+                    XMTextFieldM _ _ _ _ _ _    -> sendKeyInputTextField lbl
     getGenProps = l_gen
     drawContents ctx lbl = case l_mode lbl of
-                        XMLabelM                    -> drawLabel ctx lbl
-                        XMTextFieldM _ _ _ _ _ _    -> drawTextField ctx lbl
+                    XMLabelM                    -> drawLabel ctx lbl
+                    XMTextFieldM _ _ _ _ _ _    -> drawTextField ctx lbl
 
     setGenProps label gpr = label { l_gen = gpr }
     getElEventMap = l_events
@@ -109,7 +112,8 @@ sendKeyInputLabel label ks =
 moveCursor :: KeySym -> XMLabel -> XMLabel
 moveCursor ks lbl = alignAfterMove . updateCursorX
                   $ lbl { l_mode = (l_mode lbl)
-                            { tf_cursor = maybe l_cursor id . (M.!?) ksMap $ ks
+                            { tf_cursor = maybe l_cursor id
+                                        . (M.!?) ksMap $ ks
                             }
                         }
     where l_cursor = tf_cursor (l_mode lbl)
@@ -119,6 +123,12 @@ moveCursor ks lbl = alignAfterMove . updateCursorX
                              , ( xK_Right
                                , min (length $ l_val lbl)
                                      (l_cursor + 1))
+                             , ( xK_Home
+                               , 0
+                               )
+                             , ( xK_End
+                               , length $ l_val lbl
+                               )
                              ]
 
 sendKeyInputTextField label ks =
@@ -129,13 +139,13 @@ sendKeyInputTextField label ks =
                          (liftM ((flip (,)) True) . runElEvent lbl
                                                   $ XMChangeEvent)
                          changed)
-           $ if ks == xK_BackSpace
-             then let newL = removeCharFromTextField label
+           $ if ks `elem` [xK_BackSpace, xK_Delete]
+             then let newL = removeCharFromTextField ks label
                   in ( l_val label /= l_val newL
                      , True
                      , newL
                      )
-             else if ks `elem` [xK_Left, xK_Right]
+             else if ks `elem` [xK_Left, xK_Right, xK_Home, xK_End]
              then let newL = moveCursor ks label
                   in ( False
                      , tf_cursor (l_mode label) /= tf_cursor (l_mode newL)
@@ -179,19 +189,29 @@ removeCharFromLabel label
                                               (l_val newLabel)
           newWwPad = newWidth + 2 * (l_xPad label)
 
-removeCharFromTextField :: XMLabel -> XMLabel
-removeCharFromTextField label
-    | l_cursor == 0     = label
-    | otherwise         = adjustAfterModify XMRem
-                        . updateCursorX
-                        $ label { l_val = remove (l_val label)
-                                                 (-1 + l_cursor)
-                                , l_mode = (l_mode label)
-                                        { tf_cursor = l_cursor - 1
-                                        }
-                                }
+removeCharFromTextField :: KeySym -> XMLabel -> XMLabel
+removeCharFromTextField ks label
+    | l_cursor == 0 && ks == xK_BackSpace                   = label
+    | l_cursor == length (l_val label) && ks == xK_Delete   = label
+    | otherwise = adjustAfterModify XMRem
+                . updateCursorX
+                $ label { l_val = remove (l_val label)
+                                . (l_cursor +)
+                                . fromJust
+                                . (flip (M.!?)) ks
+                                $ ksMap
+
+                        , l_mode = (l_mode label)
+                                { tf_cursor = (l_cursor +)
+                                            . fromJust
+                                            . (flip (M.!?)) ks
+                                            $ ksMap }
+                        }
     where remove str pos = take pos str ++ drop (pos + 1) str
           l_cursor = tf_cursor (l_mode label)
+          ksMap = M.fromList $ [ (xK_BackSpace, -1)
+                               , (xK_Delete, 0)
+                               ]
 
 addCharToTextField :: XMLabel -> Char -> XMLabel
 addCharToTextField label char = adjustAfterModify XMAdd
@@ -231,44 +251,48 @@ data XMModifyMode = XMAdd | XMRem deriving Eq
 
 adjustAfterModify :: XMModifyMode -> XMLabel -> XMLabel
 adjustAfterModify mode lbl
-    | isCursorOut   = lbl { l_mode = (l_mode lbl)
-                                { tf_viewX = case mode of
-                                    XMAdd   -> let newX = l_cursorX
-                                                        - fromIntegral lblVW
-                                                   csum = newX + cursorPeek
-                                                   newX' = fromIntegral (lblTW - lblVW) :: Position
-                                               in bool newX' csum . (<) csum
-                                                                 . fromIntegral
-                                                                 $ remW
+    | cursorOut = lbl { l_mode = (l_mode lbl)
+                        { tf_viewX = case mode of
+                            XMAdd   -> let newX = l_cursorX
+                                                - fromIntegral lblVW
+                                           csum = newX + cursorPeek
+                                       in bool (fromIntegral $ lblTW - lblVW)
+                                               csum
+                                        . (<) csum
+                                        . fromIntegral
+                                        $ remW
 
-                                    XMRem   -> let diff = l_cursorX - cursorPeek
-                                               in bool 0 diff . (>) diff $ 0
-                                }
-                          }
+                            XMRem   -> let diff = l_cursorX - cursorPeek
+                                       in bool 0 diff . (>) diff $ 0
+                        }
+                      }
 
-    | otherwise     = if tf_viewX (l_mode lbl) < 0
-                      then lbl { l_mode = (l_mode lbl) { tf_viewX = 0 } }
-                      else case mode of
-                        XMAdd   -> lbl
-                        XMRem   -> if lblTW > lblVW && remW < 0
-                                   then lbl { l_mode = (l_mode lbl)
-                                                { tf_viewX = fromIntegral
-                                                           $ lblTW - lblVW
-                                                }
+    | otherwise = if tf_viewX (l_mode lbl) < 0
+                  then lbl { l_mode = (l_mode lbl) { tf_viewX = 0 } }
+
+                  else case mode of
+
+                    XMAdd   -> lbl
+
+                    XMRem   -> if lblTW > lblVW && remW < 0
+                               then lbl { l_mode = (l_mode lbl)
+                                            { tf_viewX = fromIntegral
+                                                       $ lblTW - lblVW
                                             }
-                                   else if lblTW < lblVW && l_cursorX /= 0
-                                   then lbl { l_mode = (l_mode lbl)
-                                                { tf_viewX = 0 }
-                                            }
-                                   else lbl
+                                        }
+                               else if lblTW < lblVW && l_cursorX /= 0
+                               then lbl { l_mode = (l_mode lbl)
+                                            { tf_viewX = 0 }
+                                        }
+                               else lbl
 
     where lblVW = labelViewWidth lbl
           lblTW = labelTextWidth lbl
           l_cursorX = tf_cursorX $ l_mode lbl
           remW = fromIntegral lblTW - fromIntegral lblVW
                - fromIntegral (tf_viewX $ l_mode lbl)
-          isCursorOut = let rcx = getRelativeCursorX lbl
-                        in rcx < 0 || rcx > fromIntegral lblVW
+          cursorOut = let rcx = getRelativeCursorX lbl
+                      in rcx < 0 || rcx > fromIntegral lblVW
           cursorPeek = (fromIntegral . tf_cursorPeek $ l_mode lbl) :: Position
 
 
@@ -390,7 +414,8 @@ alignAfterMove lbl
     where l_cursorX = tf_cursorX $ l_mode lbl
           l_viewX = tf_viewX $ l_mode lbl
           l_cursorW = tf_cursorW $ l_mode lbl
-          l_width = gp_width (l_gen lbl) - fromIntegral (2 * gp_xPad (l_gen lbl))
+          l_width = gp_width (l_gen lbl)
+                  - fromIntegral (2 * gp_xPad (l_gen lbl))
 
 drawTextField :: XMContext -> XMLabel -> Dimension -> Dimension -> Bool
               -> RT.ReaderT XMenuData IO ()
@@ -426,8 +451,6 @@ drawTextField context textf w h focd = RT.ask >>= \xmdata -> do
                  pw el_h 0 0
 
         freePixmap display pixmap
-
-        print $ tf_cursorX $ l_mode textf
 
     where lbly = fromIntegral $ (h + fromIntegral asc) `div` 2
           (_, asc, _, _) = textExtents (l_fontStruct textf)
