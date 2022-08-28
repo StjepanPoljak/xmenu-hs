@@ -35,11 +35,6 @@ class XMElementClass a where
                 . (flip getXMEvent) ev
                 . getElEventMap $ el
 
-    -- runCB2 :: a -> b -> (XMCallbacks a -> XMCallback2T a b) -> IO a
-    --runCB2 el el2 cb = maybe (return el)
-    --                         (\cbs -> runCallback2 (cb cbs) el el2)
-    --                 . getCallbacks $ el
-
     drawElement :: XMContext -> a -> Bool -> ReaderT XMenuData IO ()
     drawElement context el focd = ask >>= \xmdata -> do
         let display = g_display xmdata

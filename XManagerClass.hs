@@ -4,6 +4,8 @@ module XManagerClass ( XEManager(..)
                      , XEFocusDirection(..)
                      , direction
                      , XMItems
+                     , XMAnimation(..)
+                     , XMAnimationDuration(..)
                      , defaultEventMap
                      ) where
 
@@ -17,8 +19,12 @@ import qualified Data.Sequence as S ( Seq, fromList, mapWithIndex, null, (!?)
 import qualified Data.Foldable as F (toList)
 import qualified Data.Map as M (Map, fromList, (!?))
 import Data.Function ((&))
+import Data.List (delete)
 
-import Control.Monad ((<=<), liftM, when)
+import Control.Concurrent ( forkOS, threadDelay, ThreadId
+                          , myThreadId, killThread
+                          )
+import Control.Monad ((<=<), liftM, when, void)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Control.Monad.Reader (Reader, ask, liftIO, mfilter)
 
@@ -34,6 +40,7 @@ data XEManager a = XEManager { xem_elements         :: XMItems a
                              , xem_inFocus          :: Maybe Int
                              , xem_map              :: Maybe (XMMap a)
                              , xem_eventMap         :: XMEventMap (XEManager a)
+                             , xem_animations       :: [ThreadId]
                              }
 
 data XEFocusDirection = Forward
@@ -44,7 +51,70 @@ direction :: a -> a -> XEFocusDirection -> a
 direction x _ Forward = x
 direction _ x Backward = x
 
+data XMAnimationDuration = XMAnimateForever Int | XMAnimateFor Int
+
+data XMAnimation a = XMAnimation { ani_fn       :: Int -> a -> a
+                                 , ani_delay    :: Int
+                                 , ani_duration :: XMAnimationDuration
+                                 }
+
 class XEManagerClass f where
+
+    getAnimations :: (XMElementClass a) => f a -> [ThreadId]
+    setAnimations :: (XMElementClass a) => f a -> [ThreadId] -> f a
+
+    addAnimation :: (XMElementClass a) => f a -> ThreadId -> f a
+    addAnimation xem anid = setAnimations xem
+                          . (anid:)
+                          . getAnimations $ xem
+
+    delAnimation :: (XMElementClass a) => f a -> ThreadId -> f a
+    delAnimation xem anid = setAnimations xem
+                          . delete anid
+                          . getAnimations $ xem
+
+    cancelAnimation :: (XMElementClass a) => f a -> ThreadId -> IO (f a)
+    cancelAnimation xem anid = killThread anid
+                           >>= const (return $ delAnimation xem anid)
+
+    animate :: (XMElementClass a) => XMEventQueue (f a) -> Int -> XMAnimation a
+                                  -> XMenuDataM ThreadId
+    animate evq el ani = ask >>= \xmdata -> liftIO $ forkOS $ do
+        let animateLoop cnt = do
+
+            tid <- liftIO $ myThreadId
+
+            let cnt' = cnt + 1
+
+            let modA xm = if cnt == 0
+                          then addAnimation xm tid
+                          else case ani_duration ani of
+                            XMAnimateForever _  -> xm
+                            XMAnimateFor times  -> if times == cnt'
+                                                   then delAnimation xm tid
+                                                   else xm
+
+            (flip sendXMGUIEvent) evq $ \xman -> return
+                                               . Just
+                                               . modA
+                                               . replaceElement xman el
+                                               . (ani_fn ani) cnt
+                                               . getElement xman
+                                               $ el
+
+            let loopWithDelay n = do
+                liftIO $ threadDelay (ani_delay ani)
+                animateLoop n
+
+            case ani_duration ani of
+                XMAnimateForever m  -> loopWithDelay (cnt' `mod` m)
+                XMAnimateFor times  -> let
+                                       in bool (return ())
+                                               (loopWithDelay cnt')
+                                        $ cnt' >= times
+
+        runReaderT (animateLoop 0) xmdata
+
     getElements :: (XMElementClass a) => f a -> XMItems a
     getFocus :: (XMElementClass a) => f a -> Maybe Int
     setFocus :: (XMElementClass a) => f a -> Maybe Int -> f a
@@ -130,7 +200,7 @@ class XEManagerClass f where
                         (nwxm, rdrw) <- liftIO $ maybe (return (xem', False))
                                                        (forwardKey xem')
                                                . getFocus $ xem'
-                        when (rdrw) $ (flip runReaderT) xmd (sendRedrawEvent evq)
+                        when (rdrw) $ runReaderT (sendRedrawEvent evq) xmd
                         return (Just nwxm)
 
     drawAll :: (XMElementClass a) => f a -> XMContext
@@ -195,6 +265,9 @@ instance XEManagerClass (XEManager) where
 
     getEventMap = xem_eventMap
 
+    getAnimations = xem_animations
+    setAnimations xem anids = xem { xem_animations = anids }
+
 defaultEventMap :: (XEManagerClass a, XMElementClass b) => XMEventMap (a b)
 defaultEventMap = eventMapFromList
                               [ ( XMKeyEvent xK_Escape, sendXMGUIEvent
@@ -214,7 +287,7 @@ defaultEventMap = eventMapFromList
 createManager :: (XMElementClass b) => [XMenuGlobal -> b]
               -> Reader XMenuGlobal (XEManager b)
 createManager xels = return
-                   . (\els -> XEManager els Nothing Nothing defaultEventMap)
+                   . (\els -> XEManager els Nothing Nothing defaultEventMap [])
                    . S.fromList
                    . (flip map) xels
                    . (&)

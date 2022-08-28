@@ -176,7 +176,17 @@ main = do
                    }
             where eventMap = defaultEventMap
 
-    let onInit = sendXMGUIEvent $ inputLabelEvent xmglob execList ""
+    let cursorAnimation fr el = let XMLabelE lbl = el
+                                in XMLabelE $ lbl { l_mode = (l_mode lbl) {
+                                                    tf_cursorHide = (==0)
+                                                                  . mod fr
+                                                                  $ 2 }
+                                                  }
+
+    let onInit evq = do sendXMGUIEvent (inputLabelEvent xmglob execList "") evq
+                        animate evq 0 . XMAnimation cursorAnimation (10^6)
+                                      $ XMAnimateForever 2
+                        return ()
 
     mainLoop evq xmglob onInit xman
 

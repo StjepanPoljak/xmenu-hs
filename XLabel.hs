@@ -1,6 +1,6 @@
 module XLabel
     ( XMLabel(l_gen, l_val, l_events, l_mode)
-    , XMLabelMode(tf_cursorPeek, tf_background)
+    , XMLabelMode(tf_cursorPeek, tf_background, tf_cursorHide)
     , defaultLabel
     , emptyLabel
     , emptyTextField
@@ -32,6 +32,7 @@ data XMLabelMode = XMLabelM
                                 , tf_cursorW    :: Dimension
                                 , tf_cursorX    :: Position
                                 , tf_cursorPeek :: Dimension
+                                , tf_cursorHide :: Bool
                                 , tf_viewX      :: Position
                                 , tf_background :: Maybe Pixmap }
 
@@ -84,11 +85,11 @@ allowedChars = (fst $ unzip specialChars) ++ alphanum
 instance XMElementClass XMLabel where
     sendKeyInput lbl = case l_mode lbl of
                     XMLabelM                    -> sendKeyInputLabel lbl
-                    XMTextFieldM _ _ _ _ _ _    -> sendKeyInputTextField lbl
+                    XMTextFieldM _ _ _ _ _ _ _  -> sendKeyInputTextField lbl
     getGenProps = l_gen
     drawContents ctx lbl = case l_mode lbl of
                     XMLabelM                    -> drawLabel ctx lbl
-                    XMTextFieldM _ _ _ _ _ _    -> drawTextField ctx lbl
+                    XMTextFieldM _ _ _ _ _ _ _  -> drawTextField ctx lbl
 
     setGenProps label gpr = label { l_gen = gpr }
     getElEventMap = l_events
@@ -321,7 +322,7 @@ emptyTextField :: String -> Position -> Position -> Dimension -> Dimension
                -> Reader XMenuGlobal XMLabel
 emptyTextField name x y w h = defaultGenProps name x y w h >>= \gp ->
             return $ XMLabel gp emptyEventMap "" emptyDispVal
-                             (XMTextFieldM 0 2 0 16 0 Nothing)
+                             (XMTextFieldM 0 2 0 16 False 0 Nothing)
 
 defaultLabel :: String -> String -> Position -> Position -> Dimension
              -> Dimension -> Reader XMenuGlobal XMLabel
@@ -419,9 +420,10 @@ alignAfterMove lbl
 
 drawTextField :: XMContext -> XMLabel -> Dimension -> Dimension -> Bool
               -> RT.ReaderT XMenuData IO ()
-drawTextField context textf w h focd = RT.ask >>= \xmdata -> do
+drawTextField context textf w h False = drawLabel context textf w h False
+drawTextField context textf w h True = RT.ask >>= \xmdata -> do
     let display = g_display xmdata
-    let (fgColor, bgColor) = getColorsDynamic (l_gen textf) focd
+    let (fgColor, bgColor) = getColorsDynamic (l_gen textf) True
     let (drawable, gc) = (c_drawable context, c_gc context)
     let el_gp = getGenProps textf
     let (el_w, el_h) = (gp_width el_gp, gp_height el_gp)
@@ -443,9 +445,10 @@ drawTextField context textf w h focd = RT.ask >>= \xmdata -> do
         setFont display gc (fontFromFontStruct $ l_fontStruct textf)
         drawString display pixmap gc 1 lbly (l_val textf)
 
-        fillRectangle display pixmap gc (tf_cursorX $ l_mode textf)
-                      (lbly - (fromIntegral asc') + 4)
-                      (tf_cursorW $ l_mode textf) (fromIntegral asc')
+        when (not . tf_cursorHide $ l_mode textf) $
+            fillRectangle display pixmap gc (tf_cursorX $ l_mode textf)
+                          (lbly - (fromIntegral asc') + 4)
+                          (tf_cursorW $ l_mode textf) (fromIntegral asc')
 
         copyArea display pixmap drawable gc (tf_viewX $ l_mode textf) 0
                  pw el_h 0 0
