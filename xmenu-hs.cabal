@@ -46,7 +46,7 @@ build-type:          Simple
 extra-source-files:  CHANGELOG.md
 
 -- Constraint on the version of Cabal needed to build this package.
-cabal-version:       >=1.2
+cabal-version:       >=1.8
 
 
 executable xmenu-hs
