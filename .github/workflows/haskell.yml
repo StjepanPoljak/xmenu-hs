@@ -33,6 +33,9 @@ jobs:
           ${{ runner.os }}-build-
           ${{ runner.os }}-
 
+    - name: Install X11 libraries
+      run: sudo apt install -y libxrandr-dev
+
     - name: Install dependencies
       run: |
         cabal update
