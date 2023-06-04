@@ -34,7 +34,7 @@ jobs:
           ${{ runner.os }}-
 
     - name: Install X11 libraries
-      run: sudo apt install -y libxrandr-dev
+      run: sudo apt install -y libxrandr-dev libxss-dev
 
     - name: Install dependencies
       run: |
