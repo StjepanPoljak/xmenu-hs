@@ -73,7 +73,7 @@ executable xmenu-hs
                        filepath >=1.4 && <1.5,
                        directory >=1.3 && <1.4
 
-  extra-libraries:     Xrandr
+  extra-libraries:     Xrandr, Xss
 
   -- Directories containing source files.
   hs-source-dirs:      src
