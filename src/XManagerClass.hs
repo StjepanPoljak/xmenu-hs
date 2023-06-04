@@ -82,36 +82,36 @@ class XEManagerClass f where
     animate evq el ani = ask >>= \xmdata -> liftIO $ forkOS $ do
         let animateLoop cnt = do
 
-            tid <- liftIO $ myThreadId
+             tid <- liftIO $ myThreadId
 
-            let cnt' = cnt + 1
+             let cnt' = cnt + 1
 
-            let modA xm = if cnt == 0
-                          then addAnimation xm tid
-                          else case ani_duration ani of
-                            XMAnimateForever _  -> xm
-                            XMAnimateFor times  -> if times == cnt'
-                                                   then delAnimation xm tid
-                                                   else xm
+             let modA xm = if cnt == 0
+                           then addAnimation xm tid
+                           else case ani_duration ani of
+                             XMAnimateForever _  -> xm
+                             XMAnimateFor times  -> if times == cnt'
+                                                    then delAnimation xm tid
+                                                    else xm
 
-            (flip sendXMGUIEvent) evq $ \xman -> return
-                                               . Just
-                                               . modA
-                                               . replaceElement xman el
-                                               . (ani_fn ani) cnt
-                                               . getElement xman
-                                               $ el
+             (flip sendXMGUIEvent) evq $ \xman -> return
+                                                . Just
+                                                . modA
+                                                . replaceElement xman el
+                                                . (ani_fn ani) cnt
+                                                . getElement xman
+                                                $ el
 
-            let loopWithDelay n = do
-                liftIO $ threadDelay (ani_delay ani)
-                animateLoop n
+             let loopWithDelay n = do
+                  liftIO $ threadDelay (ani_delay ani)
+                  animateLoop n
 
-            case ani_duration ani of
-                XMAnimateForever m  -> loopWithDelay (cnt' `mod` m)
-                XMAnimateFor times  -> let
-                                       in bool (return ())
-                                               (loopWithDelay cnt')
-                                        $ cnt' >= times
+             case ani_duration ani of
+                 XMAnimateForever m  -> loopWithDelay (cnt' `mod` m)
+                 XMAnimateFor times  -> let
+                                        in bool (return ())
+                                                (loopWithDelay cnt')
+                                         $ cnt' >= times
 
         runReaderT (animateLoop 0) xmdata
 

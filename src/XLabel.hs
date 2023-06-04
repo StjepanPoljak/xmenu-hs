@@ -16,7 +16,6 @@ import qualified Control.Monad.Trans.Reader as RT (runReaderT, ReaderT, ask)
 
 import Data.Bool (bool)
 import Data.Either (fromRight, either)
-import Data.List (singleton)
 import Data.Function ((&))
 import Data.Maybe (fromJust)
 
@@ -79,7 +78,7 @@ getKeyStr ks = maybe (head . keysymToString $ ks) id
              . (M.!?) specialCharsMap $ ks
 
 allowedChars = (fst $ unzip specialChars) ++ alphanum
-    where alphanum = map (stringToKeysym . singleton)
+    where alphanum = map (stringToKeysym . \x -> [x])
                    $ ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']
 
 instance XMElementClass XMLabel where
